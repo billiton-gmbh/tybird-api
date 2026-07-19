@@ -1,17 +1,21 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>tybird API - Contract</title>
-  <!--
-    Fallback view without a build step: renders the spec directly via the Redoc CDN.
-    The GitHub Actions workflow (publish.yml) builds a standalone dist/index.html for Pages;
-    this file is only for local preview (just open it in a browser).
-  -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tybird API - Specification</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.5.1/github-markdown.min.css">
+<style>body{margin:0;background:#fff}.markdown-body{box-sizing:border-box;max-width:920px;margin:0 auto;padding:40px 24px}</style>
 </head>
 <body>
-  <redoc spec-url="openapi/tybird.v0.1.yaml"></redoc>
-  <script src="https://cdn.redocly.com/redoc/latest/bundles/redoc.standalone.js"></script>
+<article id="spec" class="markdown-body">Loading API.md ...</article>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script>
+fetch('API.md').then(function (r) { return r.text(); }).then(function (t) {
+  document.getElementById('spec').innerHTML = marked.parse(t);
+}).catch(function () {
+  document.getElementById('spec').textContent = 'Open this page from the published site (GitHub Pages) to render API.md.';
+});
+</script>
 </body>
 </html>

@@ -1,15 +1,2 @@
-# Redocly configuration for the tybird API contract.
-# Rules deliberately strict: the contract should be clean and fully documented.
-extends:
-  - recommended
-
-apis:
-  tybird@v0.1:
-    root: openapi/tybird.v0.1.yaml
-
-rules:
-  operation-operationId: error
-  operation-summary: error
-  operation-4xx-response: warn
-  no-unused-components: warn
-  tag-description: warn
+# OBSOLETE - not used. The single source of truth is /API.md at the repository root.
+# Safe to delete in the GitHub UI.

@@ -1,14 +1,12 @@
-name: Publish tybird API docs
+name: Publish tybird API spec
 
-# Builds the OpenAPI docs (Redoc) and publishes them automatically to GitHub Pages.
-# Triggers on every merge to main.
+# Renders API.md and publishes it to GitHub Pages on every merge to main.
 
 on:
   push:
     branches: [main]
     paths:
-      - "openapi/**"
-      - "redocly.yaml"
+      - "API.md"
       - ".github/workflows/publish.yml"
   workflow_dispatch: {}
 
@@ -31,22 +29,28 @@ jobs:
         with:
           node-version: "20"
 
-      # 0) Enable GitHub Pages on first run (build type = GitHub Actions), no manual setup needed.
+      # Enable GitHub Pages on first run (build type = GitHub Actions), no manual setup needed.
       - name: Setup Pages
         uses: actions/configure-pages@v5
         with:
           enablement: true
 
-      # 1) Validate the contract - fails on an invalid spec (the contract must be clean).
-      - name: Lint OpenAPI
-        run: npx --yes @redocly/cli@latest lint openapi/tybird.v0.1.yaml
-
-      # 2) Build the static docs.
-      - name: Build Redoc HTML
+      - name: Render API.md to HTML
         run: |
           mkdir -p dist
-          npx --yes @redocly/cli@latest build-docs openapi/tybird.v0.1.yaml -o dist/index.html
-          cp openapi/tybird.v0.1.yaml dist/tybird.v0.1.yaml
+          npx --yes marked@12 < API.md > dist/_body.html
+          {
+            echo '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
+            echo '<meta name="viewport" content="width=device-width, initial-scale=1">'
+            echo '<title>tybird API - Specification</title>'
+            echo '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.5.1/github-markdown.min.css">'
+            echo '<style>body{margin:0;background:#fff}.markdown-body{box-sizing:border-box;min-width:200px;max-width:920px;margin:0 auto;padding:40px 24px}</style>'
+            echo '</head><body><article class="markdown-body">'
+            cat dist/_body.html
+            echo '</article></body></html>'
+          } > dist/index.html
+          rm dist/_body.html
+          cp API.md dist/API.md
 
       - uses: actions/upload-pages-artifact@v3
         with:
