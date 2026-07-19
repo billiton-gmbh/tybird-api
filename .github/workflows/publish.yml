@@ -1,0 +1,63 @@
+name: Publish tybird API docs
+
+# Builds the OpenAPI docs (Redoc) and publishes them automatically to GitHub Pages.
+# Triggers on every merge to main.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "openapi/**"
+      - "redocly.yaml"
+      - ".github/workflows/publish.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # 0) Enable GitHub Pages on first run (build type = GitHub Actions), no manual setup needed.
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      # 1) Validate the contract - fails on an invalid spec (the contract must be clean).
+      - name: Lint OpenAPI
+        run: npx --yes @redocly/cli@latest lint openapi/tybird.v0.1.yaml
+
+      # 2) Build the static docs.
+      - name: Build Redoc HTML
+        run: |
+          mkdir -p dist
+          npx --yes @redocly/cli@latest build-docs openapi/tybird.v0.1.yaml -o dist/index.html
+          cp openapi/tybird.v0.1.yaml dist/tybird.v0.1.yaml
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
