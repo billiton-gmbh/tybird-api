@@ -555,6 +555,66 @@ Returns the caller's own open-house requests and their status (`pending`, `confi
 
 ---
 
+### 4.6 Chat
+
+A single conversation per contact between the customer and the **team** — the assigned
+Hausberater plus the supporting **Online-Team**. One thread per contact: the customer has
+exactly one thread (their own); staff see all threads of the tenant.
+
+**Message sender classes** (`sender_kind`): `customer`, `advisor` (the assigned Hausberater),
+`online_team` (a supporting team member), `system` (automated note). The client renders the
+Online-Team suffix ("Name (Online-Team)") from `sender_kind`; the assigned advisor shows
+without a suffix.
+
+**Message object:**
+
+```json
+{
+  "id": "uuid",
+  "thread_id": "uuid",
+  "created_at": "2026-07-14T14:09:00Z",
+  "body": "Guten Tag Herr Schilling, ich habe Ihnen die Baubeschreibung bereitgestellt.",
+  "sender_kind": "online_team",
+  "sender": { "id": "uuid", "name": "Lena Vogt", "avatar_url": "https://..." }
+}
+```
+
+`sender` is `null` for `system` messages.
+
+#### Self scope (customer)
+
+- `GET /chat` — my thread meta: the participants (advisor + Online-Team members, each with
+  name/avatar) and the unread count.
+- `GET /chat/messages` — my messages, paginated (`page`/`limit`).
+- `POST /chat/messages` — send a message. Body `{ "body": "..." }`; `sender_kind` is `customer`.
+- `POST /chat/read` — mark my thread read up to now.
+
+#### Staff scope
+
+- `GET /chat/threads` — the inbox: threads across contacts, each with a contact summary, last
+  message, unread count and assignment. Query: `status`, `unread` (bool), `page`/`limit`.
+- `GET /chat/threads/{id}/messages` — a thread's messages, paginated.
+- `POST /chat/threads/{id}/messages` — reply. Body `{ "body": "..." }`. `sender_kind` is
+  `advisor` when the caller is the contact's assigned Hausberater, otherwise `online_team`.
+- `PATCH /chat/threads/{id}/read` — mark the thread read.
+- `GET /chat/threads/{id}/canned-replies` — contextual suggested replies for this thread (based
+  on the last customer message / contact status): `{ "data": [ { "id": "uuid", "text": "...",
+  "category": "..." } ] }`. A chosen reply is placed into the input as editable text — it is not
+  sent automatically.
+
+> **Realtime.** History and sending go through these REST endpoints; **live delivery** is via
+> Supabase Realtime — each client subscribes to new messages of its own thread (RLS-scoped), so
+> messages appear instantly without polling. When the app is in the background, delivery is
+> covered by push (§5). Typing/presence indicators, if wanted, use Realtime presence channels.
+
+> **Backend note.** Built on the existing chat structure (`card_chat_threads` /
+> `card_chat_messages`, generalized) plus additions: a message **sender** (`sender_user_id` +
+> `sender_kind`), thread **read state**, the **Online-Team** (a functional `teams` /
+> `team_members` group), and a small per-tenant **canned-replies** store. Not yet live — this
+> section is the contract to implement.
+
+---
+
 ## 5. PHASE 2 — Notifications & push
 
 Two parts, both scoped to the calling user: **in-app notifications** (already stored) and
@@ -639,9 +699,9 @@ Card screens consume Card endpoints under the same `/api/v1/` contract.
 The end-customer (self) scope is now part of the contract (see §2 "Authorization scopes"): a
 person with an app login, constrained to their own records. The first self-scope endpoints are
 specified above — the `advisor` block on `/me` (§4.0), Documents (§4.3), Referrals (§4.4) and
-Open-house requests (§4.5). Further end-customer resources (chat, consents / notification
-preferences, favorites, journey / milestones) follow as additional resource sections in scoped
-later versions, on the same host, error shape and conventions.
+Open-house requests (§4.5) and Chat (§4.6). Further end-customer resources (consents /
+notification preferences, favorites, journey / milestones) follow as additional resource
+sections in scoped later versions, on the same host, error shape and conventions.
 
 ### 6.3 Other planned additions
 
@@ -673,6 +733,10 @@ tenant-specific field/module variations — all added in clearly scoped later ve
 
 What changed between revisions of this spec. Newest first.
 
+- **2026-07-20** — Added **Chat** (§4.6): a per-contact conversation for the self and staff
+  scopes — sender classes (`customer`/`advisor`/`online_team`/`system`), a staff inbox,
+  contextual canned replies, and a Realtime note. The backend (chat tables + message sender +
+  read state, the Online-Team group, the canned-replies store) is still to build.
 - **2026-07-20** — Introduced the **end-customer (self) scope** (§2 "Authorization scopes"):
   a caller constrained to their own records, alongside the existing staff scope. Added the
   first self-scope resources — the `advisor` block on `/me` (§4.0), **Documents** (§4.3, incl.
