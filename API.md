@@ -555,27 +555,67 @@ Returns the caller's own open-house requests and their status (`pending`, `confi
 
 ---
 
-## 5. PHASE 2 — Push notifications (concept, not final)
+## 5. PHASE 2 — Notifications & push
 
-Goal: when a task is assigned to a user or becomes due, the user receives a push
-notification on the device.
+Two parts, both scoped to the calling user: **in-app notifications** (already stored) and
+**device push** (delivery to the phone).
 
-**Current state of the backend:** an internal `notifications` structure already exists (for
-in-app notifications: title, body, read status, link). What is **missing** and must be built
-for real device push is **device registration** (device token management). We build this once
-Phase 1 is in place.
+### 5.1 In-app notifications
 
-**Likely endpoints (for early planning in the app architecture):**
+#### `GET /notifications` — my notifications
 
-- `POST /devices` — register a device: after login the app sends the push token (FCM/APNs)
-  and the platform (`ios`/`android`). We store it per user.
-- `DELETE /devices/{token}` — unregister a device (logout / token invalid).
-- `GET /notifications` — in-app notification list (read/unread).
-- `PATCH /notifications/{id}` — mark as read.
+User login. Returns the caller's notifications, newest first, paginated. Fields (curated):
+`id`, `type`, `title`, `body`, `link`, `is_read`, `created_at`.
 
-**Open decision for Phase 2 (to decide together):** push provider — Firebase Cloud Messaging
-(FCM) for both platforms, or APNs (iOS) plus FCM (Android) separately. This affects which
-token format the app delivers.
+**Query parameters (optional):** `unread` (bool — only unread), `page`/`limit`.
+
+```json
+{
+  "data": [
+    {
+      "id": "uuid",
+      "type": "task_assigned",
+      "title": "Neue Aufgabe",
+      "body": "Rueckruf fuer Familie Mustermann",
+      "link": "/tasks/uuid",
+      "is_read": false,
+      "created_at": "2026-06-14T08:00:00Z"
+    }
+  ],
+  "pagination": { "page": 1, "limit": 25, "total": 3 }
+}
+```
+
+#### `PATCH /notifications/{id}` — mark as read
+
+User login. Body `{ "is_read": true }`; sets `read_at`. A notification of another user returns
+`404`.
+
+### 5.2 Device push
+
+To deliver push to a phone, the app registers its device after login.
+
+#### `POST /devices` — register a device
+
+User login. Body `{ "push_token": "...", "platform": "ios" }` (`platform`: `ios` | `android`).
+Idempotent per token; stored per user.
+
+#### `DELETE /devices/{token}` — unregister a device
+
+User login. On logout, or when a token becomes invalid.
+
+> **Backend note.** The per-user device-token store is the piece to build for Phase 2 (today a
+> single `push_token` exists per user). The **push provider** is an open decision — Firebase
+> Cloud Messaging (FCM) for both platforms, or APNs (iOS) + FCM (Android) — and determines the
+> token format the app sends. To decide before build.
+
+### 5.3 Channel preferences
+
+#### `GET /notification-preferences` · `PUT /notification-preferences`
+
+User login. The caller's channel preferences. Fields: `in_app` (bool), `email` (bool),
+`email_digest` (`instant` | `daily`), `muted_types` (array of notification `type` values to
+suppress). `PUT` replaces the caller's preferences.
 
 ---
 
@@ -637,8 +677,11 @@ What changed between revisions of this spec. Newest first.
   a caller constrained to their own records, alongside the existing staff scope. Added the
   first self-scope resources — the `advisor` block on `/me` (§4.0), **Documents** (§4.3, incl.
   the `internal`/`customer_ready` visibility and the customer's read of shared documents),
-  **Referrals** (§4.4, status-only + personal link), and **Open-house requests** (§4.5).
-  Additive; the staff Contacts/Tasks endpoints and JSON shapes are unchanged.
+  **Referrals** (§4.4, status-only + personal link), and **Open-house requests** (§4.5). Also
+  specified **Phase 2 — Notifications & push** (§5): `GET`/`PATCH /notifications`,
+  `POST`/`DELETE /devices`, and `GET`/`PUT /notification-preferences` (the device-token store
+  and push provider are still to build). Additive; the staff Contacts/Tasks endpoints and JSON
+  shapes are unchanged.
 - **2026-06-26** — Added `GET /me` (§4.0): returns the active tenant (id, slug, name, `brand`
   limited to `accent`/`font`/`logo_url`, `enabled_modules`) for app branding, plus the
   caller's own identity on a user login (`user` is `null` for an API key). Read-only;
