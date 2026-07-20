@@ -2,7 +2,7 @@
 
 **Owner:** billiton internet services GmbH
 **Repository path:** `billiton-gmbh/tybird-api/API.md` (this file — the single source of truth)
-**Last updated:** 2026-06-26
+**Last updated:** 2026-07-20
 **Status:** Version 1 — deliberately small, extended incrementally
 
 > **What changed in this update (2026-06-23):** The platform host was consolidated. The
@@ -63,7 +63,7 @@ scoped later versions.
 | Base URL           | `https://api.tybird.com/api/v1/` — the single live product entry point. Note the `/api/v1/` path. |
 | Format             | JSON for request and response, UTF-8 |
 | Authentication     | Two models — **user login (JWT)** or **API key** — both via the `Authorization` header (see below) |
-| Authorization      | Internal staff scope only in V1. No end-customer access. |
+| Authorization      | Two scopes — **staff** (tenant-wide) and **end-customer (self)** (own records only). See "Authorization scopes" below. |
 | Tenant scope       | Derived from the credentials (active tenant). Enforced on every read and write. |
 | IDs                | UUID (string) |
 | Date/time          | ISO-8601 in UTC, e.g. `2026-06-14T09:30:00Z` |
@@ -165,6 +165,21 @@ tenant from the credential — **the client never sends a tenant id** — and co
 read and write to it. A request whose credential carries no resolvable tenant is rejected
 (`403 forbidden`, fail-closed). This is enforced now (not a future step).
 
+### Authorization scopes
+
+The API distinguishes two authorization scopes, both under the user-login (JWT) model:
+
+- **Staff scope** — internal staff accounts (Hausberater, Innendienst, admins). Reads are
+  tenant-wide (or user-scoped via `mine`); writes are allowed per the endpoint. This is the
+  scope the Contacts and Tasks endpoints are built for.
+- **End-customer (self) scope** — a person who owns their own records (a customer with an app
+  login). Every read and write is constrained to **their own** data: their own contact, their
+  own documents, their own referrals, their own requests. A self-scope caller can never see
+  another person's data or the tenant's wider data.
+
+The scope is derived from the account, never sent by the client. Endpoints note per-scope
+behaviour inline where it differs. The API-key model (Model 2) is always staff/tenant scope.
+
 ### Standard error codes
 
 | HTTP | code               | Meaning |
@@ -238,6 +253,24 @@ further tokens may be added later, additively.
 
 The active tenant is derived from the credentials (see §2 "Tenant scope") — the client never
 sends a tenant id, and the response is always scoped to that one tenant.
+
+**End-customer (self) scope:** `/me` additionally returns the caller's assigned **advisor** —
+the linked Hausberater, for the app's contact block — derived from the caller's contact
+(`hausberater_user_id`):
+
+```json
+{
+  "advisor": {
+    "id": "uuid",
+    "vorname": "Thomas",
+    "nachname": "Klein",
+    "role": "hausberater",
+    "avatar_url": "https://..."
+  }
+}
+```
+
+`advisor` is `null` if none is assigned. Staff callers do not receive `advisor`.
 
 ### 4.1 Contacts
 
@@ -412,6 +445,116 @@ Setting `status: "done"` makes the API set `completed_at` automatically.
 
 ---
 
+### 4.3 Documents
+
+Documents attached to a contact. Each document carries a **visibility**: `internal` (staff
+only) or `customer_ready` (shared with the customer). Files are stored privately; the API
+returns a temporary signed `download_url`.
+
+**Fixed value list — `visibility`:** `internal`, `customer_ready`.
+
+#### `GET /contacts/{id}/documents` — documents of a contact (staff scope)
+
+Returns all documents of the contact, both visibilities. Fields (curated): `id`, `title`,
+`file_name`, `category`, `visibility`, `created_at`, `download_url`.
+
+```json
+{
+  "data": [
+    {
+      "id": "uuid",
+      "title": "Angebot Kundenhaus Adamello",
+      "file_name": "angebot-adamello.pdf",
+      "category": "Angebot",
+      "visibility": "customer_ready",
+      "created_at": "2026-06-14T08:00:00Z",
+      "download_url": "https://...signed..."
+    }
+  ]
+}
+```
+
+#### `GET /documents` — my shared documents (end-customer self scope)
+
+Returns the documents shared with the calling customer — i.e. `visibility = customer_ready`
+of the caller's own contact — each with a temporary signed `download_url`. Internal documents
+are never returned, and `visibility` is omitted (customer-ready by definition). Response shape
+as above, without the `visibility` field.
+
+> Managing documents (upload, changing visibility) is staff-only (Admin/Manager) and is
+> specified with the staff write endpoints in a later version. In V1 the customer view is
+> read-only.
+
+---
+
+### 4.4 Referrals
+
+A referral links a **referrer** (an existing customer) to a person they referred. The
+contract exposes **status, not identity** — the referred person's personal data is never
+returned.
+
+**Fixed value lists** (verified against the database):
+- referral `status`: `registered`, `journey_started`, `contracted`, `paid`
+- `payout_status`: `offen`, `faellig`, `ausgezahlt`, `storniert`
+
+#### `GET /me/referral-link` — the caller's personal referral link (self scope)
+
+```json
+{ "slug": "doro-k", "url": "https://buedenbender-hausbau.de/tools/r/doro-k" }
+```
+
+#### `GET /referrals` — my referrals (end-customer self scope)
+
+Returns the caller's own referrals (as referrer), **status only**. A data-protection threshold
+applies to the level of detail: with exactly one active referral, only the coarse
+`payout_status` is returned; the finer `status` is included only when several referrals are
+active **or** the referred person has explicitly consented. Names or contact data of the
+referred person are never returned.
+
+```json
+{
+  "data": [
+    {
+      "id": "uuid",
+      "payout_status": "offen",
+      "status": "registered",
+      "payout_amount_eur": 1000
+    }
+  ]
+}
+```
+
+> The intake — creating the referrer→referred link when the referral link is used — happens
+> server-side (lead intake writes a contact-to-contact relationship of type `referral`). It is
+> not a client endpoint.
+
+---
+
+### 4.5 Open-house requests
+
+A customer can offer to open their home for a viewing. This is a **non-binding expression of
+interest** that creates a review task for the responsible staff member; it is not
+self-service, and the customer never enters visitor data.
+
+#### `POST /open-house-requests` — express interest (self scope)
+
+**Request body (all optional):**
+
+```json
+{ "timeframe": "fruehling", "message": "Wir wuerden gern unser Haus oeffnen." }
+```
+
+Creates a review task assigned to the responsible person and returns `202` with the request in
+status `pending`. `timeframe` is a free grouping (e.g. `fruehling`, `sommer`, `herbst`,
+`flexibel`).
+
+#### `GET /open-house-requests` — my requests (self scope)
+
+Returns the caller's own open-house requests and their status (`pending`, `confirmed`,
+`declined`, `done`).
+
+---
+
 ## 5. PHASE 2 — Push notifications (concept, not final)
 
 Goal: when a task is assigned to a user or becomes due, the user receives a push
@@ -451,14 +594,14 @@ client to read/manage a rep's card config and see card-driven contacts/activitie
 specified here once the Card backend is in place. Plan the app for three areas, not two; the
 Card screens consume Card endpoints under the same `/api/v1/` contract.
 
-### 6.2 End-customer access path (future, not in V1)
+### 6.2 End-customer (self) scope — first endpoints introduced
 
-Today this API is **staff-only** (internal staff accounts; end-customer accounts are
-rejected). A separate end-customer-facing app ("Mein Büdenbender") is planned to build
-against this same API in the future. That requires a distinct, end-customer-scoped access
-path (a different role/scope, narrower data) — it is **not** part of V1 and is called out
-here only so the contract's staff-only boundary is explicit. The end-customer scope will be
-specified separately before it is built.
+The end-customer (self) scope is now part of the contract (see §2 "Authorization scopes"): a
+person with an app login, constrained to their own records. The first self-scope endpoints are
+specified above — the `advisor` block on `/me` (§4.0), Documents (§4.3), Referrals (§4.4) and
+Open-house requests (§4.5). Further end-customer resources (chat, consents / notification
+preferences, favorites, journey / milestones) follow as additional resource sections in scoped
+later versions, on the same host, error shape and conventions.
 
 ### 6.3 Other planned additions
 
@@ -490,6 +633,12 @@ tenant-specific field/module variations — all added in clearly scoped later ve
 
 What changed between revisions of this spec. Newest first.
 
+- **2026-07-20** — Introduced the **end-customer (self) scope** (§2 "Authorization scopes"):
+  a caller constrained to their own records, alongside the existing staff scope. Added the
+  first self-scope resources — the `advisor` block on `/me` (§4.0), **Documents** (§4.3, incl.
+  the `internal`/`customer_ready` visibility and the customer's read of shared documents),
+  **Referrals** (§4.4, status-only + personal link), and **Open-house requests** (§4.5).
+  Additive; the staff Contacts/Tasks endpoints and JSON shapes are unchanged.
 - **2026-06-26** — Added `GET /me` (§4.0): returns the active tenant (id, slug, name, `brand`
   limited to `accent`/`font`/`logo_url`, `enabled_modules`) for app branding, plus the
   caller's own identity on a user login (`user` is `null` for an API key). Read-only;
