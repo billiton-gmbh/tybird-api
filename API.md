@@ -2,7 +2,7 @@
 
 **Owner:** billiton internet services GmbH
 **Repository path:** `billiton-gmbh/tybird-api/API.md` (this file — the single source of truth)
-**Last updated:** 2026-07-20
+**Last updated:** 2026-07-24
 **Status:** Version 1 — deliberately small, extended incrementally
 
 > **What changed in this update (2026-06-23):** The platform host was consolidated. The
@@ -481,9 +481,23 @@ of the caller's own contact — each with a temporary signed `download_url`. Int
 are never returned, and `visibility` is omitted (customer-ready by definition). Response shape
 as above, without the `visibility` field.
 
-> Managing documents (upload, changing visibility) is staff-only (Admin/Manager) and is
-> specified with the staff write endpoints in a later version. In V1 the customer view is
-> read-only.
+#### `PATCH /contacts/{id}/documents/{docId}/visibility` — set document visibility (staff, Admin/Manager)
+
+Staff write, restricted to **Admin/Manager**. Switches a document between `internal` and
+`customer_ready`; setting `customer_ready` shares it with the customer via `GET /documents`.
+
+**Request body:**
+
+```json
+{ "visibility": "customer_ready" }
+```
+
+`visibility` must be `internal` or `customer_ready`. Returns the updated
+`{ "id": "uuid", "visibility": "customer_ready" }`. A document of another tenant or contact
+returns `404`.
+
+> Uploading documents is staff-only and out of scope for the customer view; the customer read
+> (`GET /documents`) is read-only.
 
 ---
 
@@ -524,9 +538,40 @@ referred person are never returned.
 }
 ```
 
-> The intake — creating the referrer→referred link when the referral link is used — happens
-> server-side (lead intake writes a contact-to-contact relationship of type `referral`). It is
-> not a client endpoint.
+#### `POST /referrals` — submit a referral code (end-customer self scope)
+
+The referral intake **is a live self-scope endpoint**. The caller is the **referred person**
+(Geworbener), submitting the **referrer's** (Werber) code.
+
+**Request body:**
+
+```json
+{ "referral_code": "doro-k", "detail_consent": false }
+```
+
+- `referral_code` (string, **required**) — the referrer's code.
+- `detail_consent` (bool, optional) — the referred person's consent to expose the finer
+  `status` to the referrer.
+
+**Behaviour.** The referrer (Werber) is resolved via `user_profiles.referral_code`. The
+referred contact is created/linked and a `contact_relationships` row is written with
+`relationship_type = "empfehlung"` (from = Werber, to = Geworbener), idempotently via
+`ON CONFLICT ON CONSTRAINT unique_relationship DO NOTHING`; a `referral_details` row is then
+written via `relationship_id`. `public.referrals` is deprecated and left untouched.
+
+**Response** — `201` when the referral was newly created, `200` when it already existed:
+
+```json
+{
+  "id": "uuid",
+  "validity": "gueltig",
+  "payout_status": "offen",
+  "created": true
+}
+```
+
+`validity` is one of `gueltig`, `bestehend`, `ungeklaert`; `payout_status` as in the fixed
+list above; `created` is `true` on a fresh `201`, `false` on an existing `200`.
 
 ---
 
@@ -610,8 +655,8 @@ without a suffix.
 > **Backend note.** Built on the existing chat structure (`card_chat_threads` /
 > `card_chat_messages`, generalized) plus additions: a message **sender** (`sender_user_id` +
 > `sender_kind`), thread **read state**, the **Online-Team** (a functional `teams` /
-> `team_members` group), and a small per-tenant **canned-replies** store. Not yet live — this
-> section is the contract to implement.
+> `team_members` group), and a small per-tenant **canned-replies** store. **This backend is now
+> in place — all nine chat endpoints in this section are deployed and live.**
 
 ---
 
@@ -674,7 +719,7 @@ User login. On logout, or when a token becomes invalid.
 #### `GET /notification-preferences` · `PUT /notification-preferences`
 
 User login. The caller's channel preferences. Fields: `in_app` (bool), `email` (bool),
-`email_digest` (`instant` | `daily`), `muted_types` (array of notification `type` values to
+`email_digest` (`instant` | `hourly` | `daily` | `off`), `muted_types` (array of notification `type` values to
 suppress). `PUT` replaces the caller's preferences.
 
 ---
@@ -733,6 +778,7 @@ tenant-specific field/module variations — all added in clearly scoped later ve
 
 What changed between revisions of this spec. Newest first.
 
+- **2026-07-24** — Vertrag an den Ist-Stand angeglichen: POST /referrals (relationship_type empfehlung) dokumentiert; email_digest um hourly/off ergaenzt; documents visibility-PATCH aufgenommen; Chat und Self-Scope als live markiert. Offen: devices/Push (Phase 2).
 - **2026-07-20** — Added **Chat** (§4.6): a per-contact conversation for the self and staff
   scopes — sender classes (`customer`/`advisor`/`online_team`/`system`), a staff inbox,
   contextual canned replies, and a Realtime note. The backend (chat tables + message sender +
