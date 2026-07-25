@@ -5,12 +5,14 @@
 **Last updated:** 2026-07-24
 **Status:** Version 1 — deliberately small, extended incrementally
 
-> **What changed in this update (2026-06-23):** The platform host was consolidated. The
-> single live entry point is now **`https://api.tybird.com/api/v1/`** — note the **`/api/v1/`**
-> path, **not** `/v1/`. The previous `meinbbh...` host is **no longer the API base** and must
-> not be used for the REST API. Authentication, endpoints and JSON shapes are **unchanged** —
-> you keep building against the same contract. A short **Quick test** block was added in §2 so
-> you can smoke-test auth plus a first call in a minute (with a Windows PowerShell note).
+> **What changed in this update (2026-07-24):** The contract was synced to the as-built
+> state. `POST /referrals` is now documented as a **live** self-scope intake endpoint (the
+> internal relationship type is `empfehlung`). The `email_digest` value list was completed
+> (`instant | hourly | daily | off`), and a documents **visibility** `PATCH` was added.
+> **Chat** (§4.6) and the **Self-Scope** resources are now marked **live (deployed)**. Device
+> push registration — `POST /devices` and `DELETE /devices/{token}` — is **live** as well; push
+> **delivery** via FCM becomes active as soon as the server's FCM service-account secret is
+> configured.
 
 ---
 
@@ -463,9 +465,9 @@ Returns all documents of the contact, both visibilities. Fields (curated): `id`,
   "data": [
     {
       "id": "uuid",
-      "title": "Angebot Kundenhaus Adamello",
-      "file_name": "angebot-adamello.pdf",
-      "category": "Angebot",
+      "title": "Quote — Adamello model home",
+      "file_name": "quote-adamello.pdf",
+      "category": "Quote",
       "visibility": "customer_ready",
       "created_at": "2026-06-14T08:00:00Z",
       "download_url": "https://...signed..."
@@ -540,8 +542,8 @@ referred person are never returned.
 
 #### `POST /referrals` — submit a referral code (end-customer self scope)
 
-The referral intake **is a live self-scope endpoint**. The caller is the **referred person**
-(Geworbener), submitting the **referrer's** (Werber) code.
+The referral intake **is a live self-scope endpoint**. The caller is the **referred person**,
+submitting the **referrer's** code.
 
 **Request body:**
 
@@ -553,9 +555,9 @@ The referral intake **is a live self-scope endpoint**. The caller is the **refer
 - `detail_consent` (bool, optional) — the referred person's consent to expose the finer
   `status` to the referrer.
 
-**Behaviour.** The referrer (Werber) is resolved via `user_profiles.referral_code`. The
+**Behaviour.** The referrer is resolved via `user_profiles.referral_code`. The
 referred contact is created/linked and a `contact_relationships` row is written with
-`relationship_type = "empfehlung"` (from = Werber, to = Geworbener), idempotently via
+`relationship_type = "empfehlung"` (from = referrer, to = referred), idempotently via
 `ON CONFLICT ON CONSTRAINT unique_relationship DO NOTHING`; a `referral_details` row is then
 written via `relationship_id`. `public.referrals` is deprecated and left untouched.
 
@@ -586,7 +588,7 @@ self-service, and the customer never enters visitor data.
 **Request body (all optional):**
 
 ```json
-{ "timeframe": "fruehling", "message": "Wir wuerden gern unser Haus oeffnen." }
+{ "timeframe": "fruehling", "message": "We would be glad to open our home for a viewing." }
 ```
 
 Creates a review task assigned to the responsible person and returns `202` with the request in
@@ -618,7 +620,7 @@ without a suffix.
   "id": "uuid",
   "thread_id": "uuid",
   "created_at": "2026-07-14T14:09:00Z",
-  "body": "Guten Tag Herr Schilling, ich habe Ihnen die Baubeschreibung bereitgestellt.",
+  "body": "Hello Mr. Schilling, I've made the building specification available to you.",
   "sender_kind": "online_team",
   "sender": { "id": "uuid", "name": "Lena Vogt", "avatar_url": "https://..." }
 }
@@ -680,8 +682,8 @@ User login. Returns the caller's notifications, newest first, paginated. Fields 
     {
       "id": "uuid",
       "type": "task_assigned",
-      "title": "Neue Aufgabe",
-      "body": "Rueckruf fuer Familie Mustermann",
+      "title": "New task",
+      "body": "Callback for the Mustermann family",
       "link": "/tasks/uuid",
       "is_read": false,
       "created_at": "2026-06-14T08:00:00Z"
@@ -795,8 +797,12 @@ tenant-specific field/module variations — all added in clearly scoped later ve
 
 What changed between revisions of this spec. Newest first.
 
-- **2026-07-24** — /devices (POST/DELETE) dokumentiert als live (Push-Geräteregistrierung); FCM-Versand aktiv sobald das Service-Account-Secret gesetzt ist.
-- **2026-07-24** — Vertrag an den Ist-Stand angeglichen: POST /referrals (relationship_type empfehlung) dokumentiert; email_digest um hourly/off ergaenzt; documents visibility-PATCH aufgenommen; Chat und Self-Scope als live markiert. Offen: devices/Push (Phase 2).
+- **2026-07-24** — `/devices` (POST/DELETE) documented as **live** (push device
+  registration); FCM delivery becomes active as soon as the server's FCM service-account
+  secret is set.
+- **2026-07-24** — Contract synced to the as-built state: `POST /referrals` documented
+  (relationship type `empfehlung`); `email_digest` extended with `hourly`/`off`; the documents
+  **visibility** `PATCH` added; **Chat** and the **Self-Scope** resources marked **live**.
 - **2026-07-20** — Added **Chat** (§4.6): a per-contact conversation for the self and staff
   scopes — sender classes (`customer`/`advisor`/`online_team`/`system`), a staff inbox,
   contextual canned replies, and a Realtime note. The backend (chat tables + message sender +
