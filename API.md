@@ -698,21 +698,38 @@ User login. Body `{ "is_read": true }`; sets `read_at`. A notification of anothe
 
 ### 5.2 Device push
 
-To deliver push to a phone, the app registers its device after login.
+To deliver push to a phone, the app registers its device after login. **Both endpoints are
+live** — end-customer (self) scope, user login (Bearer JWT). Push **delivery** (the FCM
+sender) is active as soon as the server's FCM service-account secret is configured; **device
+registration itself works independently** of the sender being configured.
 
 #### `POST /devices` — register a device
 
-User login. Body `{ "push_token": "...", "platform": "ios" }` (`platform`: `ios` | `android`).
-Idempotent per token; stored per user.
+Self scope (Bearer JWT). Registers the caller's device token so push can be delivered to it.
+
+**Request body:**
+
+```json
+{ "token": "...", "platform": "ios" }
+```
+
+- `token` (string, **required**) — the device's push token (FCM token).
+- `platform` (string, **required**) — one of `ios`, `android`, `web`.
+
+The `user_id` is always taken from the JWT, **never** from the body. The store **upserts on
+`token`**: a physical device has exactly one token, so if a different user signs in on that
+device the token moves to the calling user's account. Returns `201`.
 
 #### `DELETE /devices/{token}` — unregister a device
 
-User login. On logout, or when a token becomes invalid.
+Self scope (Bearer JWT). Removes the caller's **own** device by token — on logout, or when a
+token becomes invalid. Returns `204` and is **idempotent** (also `204` when no matching device
+existed).
 
-> **Backend note.** The per-user device-token store is the piece to build for Phase 2 (today a
-> single `push_token` exists per user). The **push provider** is an open decision — Firebase
-> Cloud Messaging (FCM) for both platforms, or APNs (iOS) + FCM (Android) — and determines the
-> token format the app sends. To decide before build.
+> **Backend note.** The per-user device-token store is in place and deployed. Push **delivery**
+> uses Firebase Cloud Messaging (FCM) and becomes active as soon as the server's FCM
+> service-account secret is configured; **device registration works independently** of the
+> sender being configured.
 
 ### 5.3 Channel preferences
 
@@ -778,6 +795,7 @@ tenant-specific field/module variations — all added in clearly scoped later ve
 
 What changed between revisions of this spec. Newest first.
 
+- **2026-07-24** — /devices (POST/DELETE) dokumentiert als live (Push-Geräteregistrierung); FCM-Versand aktiv sobald das Service-Account-Secret gesetzt ist.
 - **2026-07-24** — Vertrag an den Ist-Stand angeglichen: POST /referrals (relationship_type empfehlung) dokumentiert; email_digest um hourly/off ergaenzt; documents visibility-PATCH aufgenommen; Chat und Self-Scope als live markiert. Offen: devices/Push (Phase 2).
 - **2026-07-20** — Added **Chat** (§4.6): a per-contact conversation for the self and staff
   scopes — sender classes (`customer`/`advisor`/`online_team`/`system`), a staff inbox,
