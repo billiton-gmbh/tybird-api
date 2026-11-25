@@ -1,4 +1,0 @@
-# OBSOLETE - this file is NOT the source of truth.
-# The single source of truth for the tybird API is /API.md at the repository root.
-# (This stub remains only because the tooling used to update the repo cannot delete files.
-#  It is safe to delete this file and the /openapi folder in the GitHub UI.)

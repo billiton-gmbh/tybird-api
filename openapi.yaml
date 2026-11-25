@@ -1,0 +1,3237 @@
+openapi: 3.1.0
+info:
+  title: tybird API
+  version: 2.0.0
+  summary: "Schnittstellen von tybird: App-API, Support-API und MCP-Server für Claude."
+  description: >
+    # tybird API
+
+
+    tybird ist das CRM von billiton internet services. Hier stehen alle öffentlichen Schnittstellen:
+
+
+    | Bereich | Für wen | Anmeldung |
+
+    |---|---|---|
+
+    | **App-API** | Apps für Mitarbeiter und Kunden, Auswertungen | Nutzer-Token oder API-Schlüssel |
+
+    | **Support-API** | Produkte, die Anfragen ihrer Nutzer an den Helpdesk geben | Support-Schlüssel je Produkt |
+
+    | **MCP-Server** | Claude als Werkzeug im CRM | OAuth, siehe „MCP-Server für Claude" |
+
+
+    Die Endpunkte der App-API sind nach Zielgruppe markiert:
+
+
+    | Marke | Bedeutung |
+
+    |---|---|
+
+    | `[MITARBEITER]` | interne Konten; sie lesen ihren Mandanten, Berater nur die eigenen Kontakte |
+
+    | `[KUNDE]` | Konto eines Endkunden; es sieht ausschließlich die eigenen Daten |
+
+    | `[BEIDE]` | beide |
+
+
+    ## Anmeldung
+
+
+    Alle Aufrufe der App-API tragen `Authorization: Bearer …`.
+
+
+    **Nutzer-Token.** Für Apps, in denen sich Menschen anmelden:
+
+
+    ```bash
+
+    curl -s -X POST "https://api.tybird.com/auth/v1/token?grant_type=password" \
+      -H "Content-Type: application/json" \
+      -d '{"email":"name@beispiel.de","password":"…"}'
+
+    curl -s "https://api.tybird.com/api/v1/me" \
+      -H "Authorization: Bearer <access_token>"
+    ```
+
+
+    Der Token ist kurzlebig und wird über den Refresh-Token erneuert. Er trägt den Mandanten; der Client sendet nie eine
+    Mandanten-Kennung.
+
+
+    **API-Schlüssel.** Für Systeme ohne Person: `Authorization: Bearer tyb_live_…`. Ein Admin legt ihn im CRM an
+    (Einstellungen, API-Schlüssel); er wird genau einmal angezeigt.
+
+
+    | | Nutzer-Token | API-Schlüssel |
+
+    |---|---|---|
+
+    | wer | eine Person | ein Mandant |
+
+    | lesen | was die Person sehen darf | Identität, Kontakte, Aufgaben des Mandanten |
+
+    | nötiges Recht | - | `crm:read` |
+
+    | schreiben | ja, nur Eigenes | nein, immer 403 |
+
+    | Dokumente, Empfehlungen, Anfragen, Chat, Benachrichtigungen | ja | nein, 401 |
+
+
+    Ein Schlüssel gehört auf einen Server, nie in einen Browser oder eine App.
+
+
+    ## Regeln
+
+
+    - Format JSON, UTF-8. Zeiten nach ISO 8601 mit Zeitzone. Kennungen sind UUIDs.
+
+    - Seiten: `page` ab 1, `limit` bis 100 (Vorgabe 25).
+
+    - Fehler der App-API: `{"error": {"code", "message"}}` mit den Codes `validation_error` (400), `unauthorized` (401),
+    `forbidden` (403), `not_found` (404) und `server_error` (500). Auf den Code verzweigen, nicht auf den Text.
+
+    - Fremde oder unsichtbare Daten antworten mit 404; ob es sie gibt, wird nicht verraten. Ein unbekannter Pfad
+    antwortet ohne gültige Anmeldung mit 401.
+
+    - Neue Felder können jederzeit dazukommen. Unbekannte Felder ignorieren.
+
+
+    Neue Nachrichten im Chat kommen in Echtzeit über die Verbindung der App; die Endpunkte hier liefern Verlauf und
+    Versand.
+
+
+    Das vollständige **Changelog** steht als eigener Abschnitt am Ende.
+servers:
+  - url: https://api.tybird.com/api/v1
+    description: Produktion (App-API)
+tags:
+  - name: Identität
+    description: "`[BEIDE]` Wer bin ich, in welchem Mandanten?"
+  - name: Kontakte
+    description: "`[MITARBEITER]` Interessenten und Kunden lesen."
+  - name: Aufgaben
+    description: "`[MITARBEITER]` Aufgaben lesen und erledigen."
+  - name: Dokumente
+    description: "`[MITARBEITER]` Dokumente eines Kontakts · `[KUNDE]` eigene freigegebene Dokumente."
+  - name: Empfehlungen
+    description: "`[KUNDE]` Empfehlungslink, Empfehlungen, Code einreichen."
+  - name: Anfragen
+    description: "`[KUNDE]` Kundenhaustage."
+  - name: Chat
+    description: Ein Gespräch je Kontakt zwischen Kunde und Team. `[KUNDE]` eigenes Gespräch · `[MITARBEITER]` Posteingang.
+  - name: Benachrichtigungen
+    description: "`[BEIDE]` Benachrichtigungen, Push-Geräte, Einstellungen."
+  - name: Support
+    description: >
+      Support-API v1. Ein Produkt meldet Fehler, Fragen und Ideen seiner Nutzer an den Helpdesk von billiton und zeigt
+      ihnen den Stand.
+
+
+      - **Anmeldung:** `Authorization: Bearer tyb_live_…`, je Produkt ein Schlüssel. Er bestimmt das Produkt; ihr sendet
+      es nicht mit. Der Schlüssel liegt nur in eurem Backend.
+
+      - **melder** ist die Person, **kunde** das Unternehmen, für das sie arbeitet. Beide mit eurer dauerhaften
+      `extern_id`. Ihr bestimmt sie aus **eurer** Sitzung, nie aus Angaben des Browsers.
+
+      - **Fehler:** immer `{"fehler": "<code>", "meldung": "<Satz auf Deutsch>"}`.
+
+      - **Mails:** Beantwortet billiton eine Anfrage oder erledigt sie, informiert tybird den Melder per Mail, sobald
+      der Versand für euer Produkt eingerichtet ist. Ihr müsst nichts tun.
+
+
+      **Grenzen je Melder und Stunde** (in der Kundensicht je Kunde), jede Art zählt für sich:
+
+
+      | Art | Aufrufe |
+
+      |---|---|
+
+      | Neue Anfragen (`POST /tickets`) | 20 |
+
+      | Antworten und Bestätigen zusammen | 60 |
+
+      | Lesen (Liste und Einzelabruf) | 600 |
+
+
+      Darüber kommt **429** `zu_viele`. Der Text ist bei allen drei Arten derselbe: „Mehr als 20 Anfragen je Melder und
+      Stunde. Bitte später erneut senden." Auf `fehler` verzweigen, nicht auf den Text.
+  - name: MCP-Server für Claude
+    description: >
+      Claude arbeitet mit diesem Server direkt im CRM: Kontakte finden und anlegen, Notizen und Aufgaben schreiben, den
+      Helpdesk bearbeiten. Version **1.4.0** (Streamable HTTP, Protokoll 2025-06-18).
+
+
+      ### Einrichten in Claude
+
+
+      1. In Claude unter Einstellungen, Connectors einen eigenen Connector hinzufügen.
+
+      2. **Adresse:** `https://agrctimmaaoywlsuoglc.supabase.co/functions/v1/mcp`
+
+      3. Unter den erweiterten Einstellungen die **Client-ID** eintragen. Claude braucht einen eigenen OAuth-Client;
+      seine Client-ID gibt billiton aus.
+
+      4. Verbinden, bei tybird anmelden, den **Mandanten wählen** und erlauben. Das darf heute ein Admin des Mandanten.
+
+
+      ### Regeln
+
+
+      - **Rechte wie in der Oberfläche.** Jeder Aufruf läuft mit dem Konto der angemeldeten Person.
+
+      - **Mandant fest.** Der Connector arbeitet nur in dem beim Verbinden gewählten Mandanten. Jede Antwort nennt ihn
+      unter `mandant`. Für einen anderen Mandanten neu verbinden.
+
+      - **Kein Löschen.** Es gibt kein Werkzeug, das Daten löscht. Ein Tag lässt sich von einem Kontakt abnehmen; der
+      Tag bleibt bestehen.
+
+      - **Herkunft markiert.** Was Claude anlegt, ist im Verlauf als „über Claude" erkennbar.
+
+      - **Nichts überschreiben.** Bei einem vorhandenen Kontakt werden nur leere Felder ergänzt; Abweichungen werden
+      gemeldet, nicht übernommen.
+
+
+      ### Werkzeuge
+
+
+      - `kontakt_suchen` - Findet Kontakte nach Name, E-Mail, Firma oder Domain.
+
+      - `kontakt_lesen` - Liest die Akte mit Personen, Firma, Verlauf und offenen Aufgaben.
+
+      - `kontakt_upsert` - Legt einen Kontakt an oder meldet den vorhandenen und ergänzt leere Felder.
+
+      - `quellen` - Nennt die Quellen, die beim Anlegen wählbar sind.
+
+      - `notiz_anlegen` - Schreibt eine Notiz an einen Kontakt.
+
+      - `aufgabe_anlegen` - Legt eine Aufgabe an.
+
+      - `aufgabe_aendern` - Ändert eine Aufgabe oder schließt sie ab.
+
+      - `mandant_nutzer` - Nennt die aktiven Nutzer, die zuständig sein können.
+
+      - `firma_suchen` - Findet Firmen nach Name, Ort, PLZ, E-Mail oder Telefon.
+
+      - `person_an_firma` - Verknüpft eine Person mit einer Firma und legt die Firma bei Bedarf an.
+
+      - `pipeline_stufen` - Nennt die gültigen Stufen im Vertrieb.
+
+      - `stufe_setzen` - Setzt einen Kontakt in eine Stufe.
+
+      - `tags_lesen` - Nennt die Tags mit der Zahl ihrer Kontakte.
+
+      - `kontakt_tag_setzen` - Setzt einen Tag an einen Kontakt.
+
+      - `kontakt_tag_entfernen` - Nimmt einen Tag von einem Kontakt ab.
+
+      - `tag_anlegen` - Legt einen Tag an, nur Admin und Manager.
+
+
+      Nur mit Zugang zum Helpdesk sichtbar:
+
+
+      - `support_tickets_liste` - Listet Anfragen mit Filtern nach Produkt, Status, Art und Zuständigem.
+
+      - `support_ticket_lesen` - Liest eine Anfrage mit allen Antworten, ohne die E-Mail des Melders.
+
+      - `support_antworten` - Antwortet dem Melder öffentlich.
+
+      - `support_notiz` - Schreibt einen internen Vermerk, der nie nach außen geht.
+
+      - `support_status_setzen` - Setzt den Status einer Anfrage.
+
+      - `support_zustaendig_setzen` - Setzt den Zuständigen oder gibt die Anfrage frei.
+
+      - `support_vormerken` - Merkt eine Anfrage für „Was ist neu?" vor.
+  - name: Arbeiten mit dem Helpdesk
+    description: >
+      > **Stand.** Teil 1 gilt heute. Teil 2 gilt ab Vertrag v1.1 und ist **noch nicht verfügbar**. Heute geht im
+      MCP-Server: Anfragen auflisten und lesen (`support_tickets_liste`, `support_ticket_lesen`), intern vermerken
+      (`support_notiz`), Zuständige setzen (`support_zustaendig_setzen`). Den Status kennt der Helpdesk heute in fünf
+      Werten, siehe Gruppe „Support".
+
+
+      ### Teil 1: Als Produkt anbinden
+
+
+      Die Felder stehen in der Gruppe „Support".
+
+
+      1. **Schlüssel holen.** billiton gibt je Produkt einen Support-Schlüssel aus. Er liegt nur in eurem Backend.
+
+      2. **Anfrage senden.** Euer Backend bestimmt Melder und Kunde aus eurer Sitzung und ruft `POST /tickets` auf.
+      Merkt euch die `id`.
+
+      3. **Eigene Anfragen zeigen.** `GET /tickets?melder=…` für die Liste, `GET /tickets/{id}?melder=…` für den
+      Verlauf. Die Kundensicht nur für Nutzer, die sicher Admin dieses Kunden sind.
+
+      4. **Antworten lassen.** `POST /tickets/{id}/antworten`, wenn der Nutzer nachfragt; `POST
+      /tickets/{id}/bestaetigen` für „Hat geholfen".
+
+      5. **Status anzeigen.** Zeigt dem Kunden den Status, den die Schnittstelle liefert, und nichts anderes.
+
+
+      ### Teil 2: Als Entwicklungsteam abarbeiten (ab v1.1)
+
+
+      Der Helpdesk ist die einzige Quelle: Übergabe, Anhänge und Rückmeldung stehen dort. GitHub-Issues gibt es für
+      Anfragen nicht. Gearbeitet wird über den MCP-Server (siehe „MCP-Server für Claude").
+
+
+      1. **Abholen.** Anfragen im Status „Bereit für Entwicklung", nur das eigene Produkt. Jede kommt mit ihrer
+      Übergabe.
+
+          `support_entwicklung_liste`
+
+          ```json
+          {}
+          ```
+
+      2. **Übernehmen.** Setzt „In Entwicklung" und trägt dich als Entwickler ein.
+
+          `support_entwicklung_nehmen`
+
+          ```json
+          {"ticket_id": "…"}
+          ```
+
+      3. **Lesen.** Übergabe und Verlauf der Anfrage.
+
+          `support_ticket_lesen`
+
+          ```json
+          {"nummer": "T-1043"}
+          ```
+
+      4. **Anhänge.** Bilder und Dateien zur Anfrage.
+
+          `support_anhaenge_lesen`
+
+          ```json
+          {"ticket_id": "…"}
+          ```
+
+      5. **Zwischenstand.** Entwicklungsnotiz, nur intern, mit Verweisen.
+
+          `support_entwicklung_bericht`
+
+          ```json
+          {"ticket_id": "…",
+           "text": "Ursache gefunden.",
+           "verweise": [{"art": "pr", "wert": "https://…"}]}
+          ```
+
+      6. **Zurückmelden.** Setzt „Zur Prüfung". Bericht und Verweise (PR, Commit, Deploy) sind Pflicht.
+
+          `support_entwicklung_fertig`
+
+          ```json
+          {"ticket_id": "…",
+           "text": "Behoben und ausgeliefert.",
+           "verweise": [{"art": "pr", "wert": "https://…"},
+             {"art": "commit", "wert": "abc1234"},
+             {"art": "deploy", "wert": "25.11.2026, 15:00"}]}
+          ```
+
+      **Grenze.** Das Entwicklungsteam antwortet nicht dem Kunden und setzt nie „Gelöst". Es endet bei „Zur Prüfung";
+      prüfen, lösen und antworten ist Sache des Supports. Reicht die Übergabe nicht, gehört die Rückfrage in eine
+      Entwicklungsnotiz.
+
+
+      **Die zwei Bahnen und was der Kunde sieht**
+
+
+      ```text
+
+      BAHN SUPPORT                 Kunde sieht
+
+      +--------------------------+
+
+      | Neu                      | eingegangen
+
+      +--------------------------+
+        v
+      +--------------------------+
+
+      | In Klärung               | in_arbeit
+
+      +--------------------------+
+        v    (von hier, je nach Fall)
+      +--------------------------+
+
+      | Beschreibung (optional)  | in_arbeit
+
+      | Wartet auf Kunde     (1) | rueckfrage
+
+      | Zurückgestellt       (2) | geplant
+
+      +--------------------------+
+        v    (aus In Klärung oder
+        v     Beschreibung)
+
+      BAHN ENTWICKLUNG
+
+      +--------------------------+
+
+      | Bereit für Entwicklung   | in_arbeit
+
+      +--------------------------+
+        v
+      +--------------------------+
+
+      | In Entwicklung           | in_arbeit
+
+      +--------------------------+
+        v   ^ nicht in Ordnung
+      +--------------------------+
+
+      | Zur Prüfung              | in_arbeit
+
+      +--------------------------+
+        v
+
+      ENDE
+
+      +--------------------------+
+
+      | Gelöst               (3) | erledigt
+
+      +--------------------------+
+        v
+      +--------------------------+
+
+      | Geschlossen              | geschlossen
+
+      +--------------------------+
+
+
+      (1) Antwort des Kunden führt zurück
+          zu In Klärung
+      (2) mit Datum "wieder ansehen am",
+          zurück zu In Klärung
+      (3) hat nicht geholfen oder Antwort:
+          zurück zu In Klärung
+      ```
+
+
+      „Gelöst" geht auch direkt aus „In Klärung" und „Beschreibung". „Geschlossen" wird eine Anfrage, wenn der Kunde
+      „Hat geholfen" bestätigt oder der Support schließt, nie von selbst. Aus „Beschreibung" geht es auch zu „Wartet auf
+      Kunde" und „Zurückgestellt".
+
+
+      **Dauerauftrag für Team-Chats** (kopieren, Produktnamen einsetzen)
+
+
+      ```text
+
+      Du bist das Entwicklungsteam für <PRODUKT>. Arbeite die Anfragen im
+
+      tybird-Helpdesk über den MCP-Server ab, nur für <PRODUKT>.
+
+
+      1. Hole mit support_entwicklung_liste die Anfragen im Status
+         "Bereit für Entwicklung". Nimm nur Anfragen von <PRODUKT>.
+      2. Übernimm eine mit support_entwicklung_nehmen. Lies Übergabe,
+         Verlauf und Anhänge nur in tybird. Lege keine GitHub-Issues an.
+      3. Arbeite sie ab. Halte Zwischenstände mit
+         support_entwicklung_bericht fest.
+      4. Melde mit support_entwicklung_fertig zurück: Bericht und Verweise
+         auf PR, Commit und Deploy. Danach steht sie auf "Zur Prüfung".
+      5. Antworte nie dem Kunden und setze nie "Gelöst". Fehlt dir etwas,
+         schreibe es in eine Entwicklungsnotiz und nimm die nächste.
+      ```
+  - name: Changelog
+    description: >
+      Neueste oben. Jede Änderung an einer öffentlichen Schnittstelle oder einem Werkzeug steht hier. Datum ist der Tag,
+      an dem die Änderung fertiggestellt wurde. Die Versionen der App-API vor 2.0.0 sind nachträglich vergeben; die
+      Zwischenstände 1.2 und 1.3 des MCP-Servers gab es nicht.
+
+
+      | Version |
+
+      |---|
+
+      | **2.0.0** · 2026-11-25 · Doku - Neue Referenz mit App-API, Support-API und MCP-Server an einer Stelle, als
+      OpenAPI-Dokument zum Herunterladen. Dazu die Seite „Arbeiten mit dem Helpdesk" für Produkte und Entwicklungsteams.
+      Die Beschreibung der App-API ist an das tatsächliche Verhalten angeglichen; die Schnittstelle selbst hat sich
+      dadurch nicht geändert. |
+
+      | **1.0.1** · 2026-11-25 · Support-API - Die Grenzen zählen jetzt je Art: 20 neue Anfragen, 60 Antworten, 600
+      Abrufe je Melder und Stunde. Häufiges Lesen sperrt das Senden nicht mehr. |
+
+      | **1.4.0** · 2026-11-25 · MCP - Sieben Werkzeuge für den Helpdesk: Anfragen auflisten, lesen, beantworten, intern
+      vermerken, Status und Zuständige setzen, für „Was ist neu?" vormerken. |
+
+      | **1.0.0** · 2026-11-25 · Support-API - Produkte können Anfragen ihrer Nutzer anlegen, auflisten, lesen,
+      beantworten und bestätigen. |
+
+      | **1.9.0** · 2026-11-10 · App-API - Akademische Titel stehen im Namen des Kontakts vor dem Vornamen. |
+
+      | **1.1.0** · 2026-10-31 · MCP - `kontakt_lesen` nennt, ob ein Vorgang beendet ist und warum. Werkzeuge für Tags
+      (seit 2026-10-29): lesen, setzen, abnehmen, anlegen. |
+
+      | **1.0.0** · 2026-10-24 · MCP - Jede Antwort nennt den Mandanten. Neue Werkzeuge: Firma suchen, Person an Firma,
+      Pipeline-Stufen lesen und setzen. |
+
+      | **1.8.0** · 2026-10-20 · App-API - Ein Kontakt nennt die verknüpften Firmen seiner Personen. |
+
+      | **1.0.0** · 2026-10-20 · MCP - Erste Fassung für Claude: Kontakte suchen, lesen und anlegen, Notizen, Aufgaben,
+      Quellen, Nutzer. Der Mandant wird beim Verbinden fest gewählt. |
+
+      | **1.7.0** · 2026-10-19 · App-API - Empfehlungen nennen nur noch gültige Einträge und den Auszahlungstag.
+      Kundenhaustage bekommen Wunschtag, Termin, Besucher-Link und Dankeschön. |
+
+      | **1.6.1** · 2026-10-05 · App-API - Die Hausnummer eines Kontakts ist jetzt auch mit Zusatz vollständig. |
+
+      | **1.6.0** · 2026-09-18 · App-API - API-Schlüssel werden je Aufruf auf ihre Rechte geprüft; zum Lesen ist
+      `crm:read` nötig. Im Chat gibt es die Absenderart `assistant` für den digitalen Assistenten. |
+
+      | **1.5.0** · 2026-08-11 · App-API - Archivierte Kontakte und Spam erscheinen nicht mehr in der Liste
+      (`include_spam=true` zeigt Spam). Ein Gerät lässt sich nur noch vom eigenen Konto abmelden, sonst 404. |
+
+      | **1.4.0** · 2026-08-10 · App-API - Berater sehen nur die eigenen Kontakte. „Meine Aufgaben" umfasst zugewiesene,
+      selbst angelegte und Team-Aufgaben. |
+
+      | **1.3.0** · 2026-07-31 · App-API - Push-Nachrichten öffnen in der App direkt die passende Stelle. Beim
+      Nutzerwechsel gehört das Gerät dem neu angemeldeten Konto. |
+
+      | **1.2.0** · 2026-07-25 · App-API - Push: Geräte anmelden und abmelden, Nachrichten auf das Telefon. |
+
+      | **1.1.0** · 2026-07-24 · App-API - Stand der bisherigen Beschreibung: Kontakte, Aufgaben, Dokumente,
+      Empfehlungen, Kundenhaustage, Chat, Benachrichtigungen. API-Schlüssel für Systeme ohne Person (seit 2026-06-21). |
+security:
+  - bearerAuth: []
+paths:
+  /me:
+    get:
+      tags:
+        - Identität
+      operationId: getMe
+      summary: Aktiver Mandant und eigene Identität [BEIDE]
+      description: >-
+        Nach der Anmeldung aufrufen: liefert den aktiven Mandanten (für das Aussehen der App) und, bei einer
+        Nutzer-Anmeldung, die eigene Identität. Mit einem API-Schlüssel ist `user` gleich `null`.
+
+
+        Kunden bekommen zusätzlich `advisor`, den zugeordneten Berater (oder `null`). Mitarbeiter bekommen das Feld
+        nicht.
+
+
+        Ein API-Schlüssel braucht das Recht `crm:read`.
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      responses:
+        "200":
+          description: Mandant und Identität
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Me"
+        "401":
+          $ref: "#/components/responses/F401"
+        "403":
+          $ref: "#/components/responses/F403"
+        "404":
+          $ref: "#/components/responses/F404"
+        "500":
+          $ref: "#/components/responses/F500"
+  /contacts:
+    get:
+      tags:
+        - Kontakte
+      operationId: listContacts
+      summary: Kontakte auflisten [MITARBEITER]
+      description: >-
+        Neueste zuerst, je Kontakt mit der Hauptperson. Archivierte Kontakte fehlen immer, als Spam erkannte nur ohne
+        `include_spam=true`.
+
+
+        **Berater (Rolle `hausberater`) sehen ausschließlich die ihnen zugeordneten Kontakte**; `assigned_to` auf eine
+        andere Person antwortet mit 403. Andere Mitarbeiter und API-Schlüssel (Recht `crm:read`) lesen den ganzen
+        Mandanten.
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+        - name: search
+          in: query
+          required: false
+          description: Suche in Vorname, Nachname, E-Mail und Ort
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          description: Nur dieser Kontaktstatus
+          schema:
+            type: string
+            enum:
+              - neu
+              - in_qualifizierung
+              - qualifiziert
+              - pool
+              - gewonnen
+              - verloren
+              - tot
+              - abgesagt
+              - im_bau
+              - uebergeben
+        - name: assigned_to
+          in: query
+          required: false
+          description: Nur Kontakte dieses Beraters
+          schema:
+            type: string
+            format: uuid
+        - name: mine
+          in: query
+          required: false
+          description: "`true` = nur eigene. Ohne Wirkung mit API-Schlüssel"
+          schema:
+            type: boolean
+        - name: include_spam
+          in: query
+          required: false
+          description: "`true` = auch als Spam erkannte Kontakte"
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Seite mit Kontakten
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/KontaktKurz"
+                  pagination:
+                    $ref: "#/components/schemas/Seiten"
+        "400":
+          $ref: "#/components/responses/F400"
+        "401":
+          $ref: "#/components/responses/F401"
+        "403":
+          $ref: "#/components/responses/F403"
+        "500":
+          $ref: "#/components/responses/F500"
+  /contacts/{id}:
+    get:
+      tags:
+        - Kontakte
+      operationId: getContact
+      summary: Ein Kontakt [MITARBEITER]
+      description: >-
+        Alle Anzeigefelder, alle Personen und die verknüpften, nicht archivierten Firmen. Archivierte Kontakte sind hier
+        lesbar (`archiviert: true`), damit ein Link aus einer Aufgabe nicht ins Leere führt.
+
+
+        Ein Kontakt eines anderen Mandanten - bei Beratern auch ein fremder Kontakt - antwortet mit 404.
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Kontakt
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Kontakt
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Kontakt"
+        "400":
+          $ref: "#/components/responses/F400"
+        "401":
+          $ref: "#/components/responses/F401"
+        "403":
+          $ref: "#/components/responses/F403"
+        "404":
+          $ref: "#/components/responses/F404"
+        "500":
+          $ref: "#/components/responses/F500"
+  /contacts/{id}/tasks:
+    get:
+      tags:
+        - Aufgaben
+      operationId: listContactTasks
+      summary: Aufgaben eines Kontakts [MITARBEITER]
+      description: Sortiert nach Fälligkeit, ohne Seiten. Ohne `status` kommen alle.
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Kontakt
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/AufgabenStatus"
+      responses:
+        "200":
+          description: Aufgaben
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Aufgabe"
+        "400":
+          $ref: "#/components/responses/F400"
+        "401":
+          $ref: "#/components/responses/F401"
+        "403":
+          $ref: "#/components/responses/F403"
+        "404":
+          $ref: "#/components/responses/F404"
+        "500":
+          $ref: "#/components/responses/F500"
+  /tasks:
+    get:
+      tags:
+        - Aufgaben
+      operationId: listTasks
+      summary: Meine Aufgaben [MITARBEITER]
+      description: >-
+        Aufgaben, die dem angemeldeten Nutzer zugewiesen sind, die er angelegt hat oder die einem seiner Teams gehören -
+        für jede Rolle gleich. Mit API-Schlüssel (Recht `crm:read`): alle Aufgaben des Mandanten.
+
+
+        Ohne `status` gilt `open,in_progress`. Hängt die Aufgabe an einem Kontakt, kommt ein kurzer `contact`-Block mit.
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: "#/components/parameters/AufgabenStatus"
+        - name: due_before
+          in: query
+          required: false
+          description: Nur Aufgaben, die vorher fällig sind
+          schema:
+            type: string
+            format: date-time
+        - name: priority
+          in: query
+          required: false
+          description: Nur diese Priorität
+          schema:
+            type: string
+            enum:
+              - low
+              - normal
+              - high
+              - urgent
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Seite mit Aufgaben
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AufgabeMitKontakt"
+                  pagination:
+                    $ref: "#/components/schemas/Seiten"
+        "400":
+          $ref: "#/components/responses/F400"
+        "401":
+          $ref: "#/components/responses/F401"
+        "403":
+          $ref: "#/components/responses/F403"
+        "500":
+          $ref: "#/components/responses/F500"
+  /tasks/{id}:
+    patch:
+      tags:
+        - Aufgaben
+      operationId: updateTask
+      summary: Aufgabe ändern [MITARBEITER]
+      description: >-
+        Erledigen, verschieben, beschreiben. Nur die **eigene** (zugewiesene) Aufgabe, sonst 403. Mit API-Schlüssel
+        immer 403: Schreiben braucht eine Person.
+
+
+        `status: done` setzt `completed_at` selbst. Andere Felder als die genannten antworten mit 400.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Aufgabe
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum:
+                    - open
+                    - in_progress
+                    - done
+                    - cancelled
+                priority:
+                  type: string
+                  enum:
+                    - low
+                    - normal
+                    - high
+                    - urgent
+                due_at:
+                  type:
+                    - string
+                    - "null"
+                  format: date-time
+                snoozed_until:
+                  type:
+                    - string
+                    - "null"
+                  format: date-time
+                description:
+                  type:
+                    - string
+                    - "null"
+            example:
+              status: done
+      responses:
+        "200":
+          description: Geänderte Aufgabe
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Aufgabe"
+        "400":
+          $ref: "#/components/responses/F400"
+        "401":
+          $ref: "#/components/responses/F401"
+        "403":
+          $ref: "#/components/responses/F403"
+        "404":
+          $ref: "#/components/responses/F404"
+        "500":
+          $ref: "#/components/responses/F500"
+  /contacts/{id}/documents:
+    get:
+      tags:
+        - Dokumente
+      operationId: listContactDocuments
+      summary: Dokumente eines Kontakts [MITARBEITER]
+      description: Interne und freigegebene. `download_url` gilt fünf Minuten. Für Berater nur an eigenen Kontakten, sonst 404.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Kontakt
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Dokumente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/DokumentIntern"
+        "401":
+          $ref: "#/components/responses/F401"
+        "403":
+          $ref: "#/components/responses/F403"
+        "404":
+          $ref: "#/components/responses/F404"
+        "500":
+          $ref: "#/components/responses/F500"
+  /contacts/{id}/documents/{docId}/visibility:
+    patch:
+      tags:
+        - Dokumente
+      operationId: setDocumentVisibility
+      summary: Sichtbarkeit setzen (Admin, Manager) [MITARBEITER]
+      description: "`customer_ready` gibt das Dokument für den Kunden frei, `internal` nimmt die Freigabe zurück."
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Kontakt
+          schema:
+            type: string
+            format: uuid
+        - name: docId
+          in: path
+          required: true
+          description: Dokument
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                visibility:
+                  type: string
+                  enum:
+                    - internal
+                    - customer_ready
+              required:
+                - visibility
+            example:
+              visibility: customer_ready
+      responses:
+        "200":
+          description: Neue Sichtbarkeit
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  visibility:
+                    type: string
+                    enum:
+                      - internal
+                      - customer_ready
+        "400":
+          $ref: "#/components/responses/F400"
+        "401":
+          $ref: "#/components/responses/F401"
+        "403":
+          $ref: "#/components/responses/F403"
+        "404":
+          $ref: "#/components/responses/F404"
+        "500":
+          $ref: "#/components/responses/F500"
+  /documents:
+    get:
+      tags:
+        - Dokumente
+      operationId: listMyDocuments
+      summary: Meine freigegebenen Dokumente [KUNDE]
+      description: Nur freigegebene Dokumente des eigenen Kontakts. `download_url` gilt fünf Minuten.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Dokumente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Dokument"
+        "401":
+          $ref: "#/components/responses/F401"
+        "403":
+          $ref: "#/components/responses/F403"
+        "500":
+          $ref: "#/components/responses/F500"
+  /me/referral-link:
+    get:
+      tags:
+        - Empfehlungen
+      operationId: getReferralLink
+      summary: Mein Empfehlungslink [KUNDE]
+      description: 404, wenn es noch keinen gibt. Die Adresse (`url`) unverändert verwenden, nicht selbst zusammensetzen.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Link
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  slug:
+                    type: string
+                  url:
+                    type: string
+                    format: uri
+              example:
+                slug: doro-k
+                url: https://mein.beispiel-hausbau.de/r/doro-k
+        "401":
+          $ref: "#/components/responses/F401"
+        "403":
+          $ref: "#/components/responses/F403"
+        "404":
+          $ref: "#/components/responses/F404"
+  /referrals:
+    get:
+      tags:
+        - Empfehlungen
+      operationId: listReferrals
+      summary: Meine Empfehlungen [KUNDE]
+      description: >-
+        Nur gültige Empfehlungen, nur der Stand - nie Name oder Kontaktdaten der geworbenen Person.
+
+
+        `status` und `created_at` kommen nur, wenn mehrere Empfehlungen aktiv sind oder die geworbene Person zugestimmt
+        hat. Sonst fehlt `status`, `created_at` ist `null`.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Empfehlungen
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Empfehlung"
+        "401":
+          $ref: "#/components/responses/F401"
+        "403":
+          $ref: "#/components/responses/F403"
+        "500":
+          $ref: "#/components/responses/F500"
+    post:
+      tags:
+        - Empfehlungen
+      operationId: submitReferral
+      summary: Empfehlungscode einreichen [KUNDE]
+      description: >-
+        Der Aufrufer ist die **geworbene** Person und reicht den Code des Werbers ein. Wiederholtes Einreichen ändert
+        nichts und antwortet mit 200.
+
+
+        404: kein eigener Kontakt oder unbekannter Code. 400: eigener Code.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                referral_code:
+                  type: string
+                detail_consent:
+                  type: boolean
+                  description: Zustimmung, dass der Werber den feineren Stand sieht
+              required:
+                - referral_code
+            example:
+              referral_code: doro-k
+              detail_consent: false
+      responses:
+        "200":
+          description: Gab es schon
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmpfehlungNeu"
+        "201":
+          description: Neu angelegt
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmpfehlungNeu"
+        "400":
+          $ref: "#/components/responses/F400"
+        "401":
+          $ref: "#/components/responses/F401"
+        "403":
+          $ref: "#/components/responses/F403"
+        "404":
+          $ref: "#/components/responses/F404"
+        "500":
+          $ref: "#/components/responses/F500"
+  /open-house-requests:
+    post:
+      tags:
+        - Anfragen
+      operationId: createOpenHouseRequest
+      summary: Kundenhaustag anbieten [KUNDE]
+      description: Unverbindliches Angebot, das eigene Haus zu zeigen. Die zuständige Person prüft es. Alle Felder sind freiwillig.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                timeframe:
+                  type: string
+                  enum:
+                    - fruehling
+                    - sommer
+                    - herbst
+                    - flexibel
+                day_preference:
+                  type: string
+                  enum:
+                    - samstag
+                    - sonntag
+                    - egal
+                message:
+                  type: string
+            example:
+              timeframe: sommer
+              day_preference: samstag
+      responses:
+        "202":
+          description: Angenommen
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  status:
+                    type: string
+                    enum:
+                      - pending
+        "400":
+          $ref: "#/components/responses/F400"
+        "401":
+          $ref: "#/components/responses/F401"
+        "403":
+          $ref: "#/components/responses/F403"
+        "404":
+          $ref: "#/components/responses/F404"
+        "500":
+          $ref: "#/components/responses/F500"
+    get:
+      tags:
+        - Anfragen
+      operationId: listOpenHouseRequests
+      summary: Meine Kundenhaustage [KUNDE]
+      description: Neueste zuerst. Termin und Besucher-Link erscheinen erst, wenn der Termin steht; die Adresse nie.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Anfragen
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Haustag"
+        "401":
+          $ref: "#/components/responses/F401"
+        "403":
+          $ref: "#/components/responses/F403"
+        "500":
+          $ref: "#/components/responses/F500"
+  /chat:
+    get:
+      tags:
+        - Chat
+      operationId: getChat
+      summary: Mein Gespräch [KUNDE]
+      description: >-
+        Beteiligte (Berater und Online-Team) und Zahl der ungelesenen Nachrichten. `thread_id` ist `null`, solange noch
+        nichts geschrieben wurde.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Gespräch
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Gespraech"
+        "401":
+          $ref: "#/components/responses/F401"
+        "403":
+          $ref: "#/components/responses/F403"
+        "404":
+          $ref: "#/components/responses/F404"
+  /chat/messages:
+    get:
+      tags:
+        - Chat
+      operationId: listMyMessages
+      summary: Meine Nachrichten [KUNDE]
+      description: Neueste zuerst.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Nachrichten
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Nachricht"
+                  pagination:
+                    $ref: "#/components/schemas/Seiten"
+        "401":
+          $ref: "#/components/responses/F401"
+        "403":
+          $ref: "#/components/responses/F403"
+        "500":
+          $ref: "#/components/responses/F500"
+    post:
+      tags:
+        - Chat
+      operationId: sendMyMessage
+      summary: Nachricht senden [KUNDE]
+      description: Legt das Gespräch beim ersten Mal an. `sender_kind` ist `customer`.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                body:
+                  type: string
+              required:
+                - body
+            example:
+              body: Guten Tag, ich habe eine Frage.
+      responses:
+        "201":
+          description: Gesendet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Nachricht"
+        "400":
+          $ref: "#/components/responses/F400"
+        "401":
+          $ref: "#/components/responses/F401"
+        "403":
+          $ref: "#/components/responses/F403"
+        "404":
+          $ref: "#/components/responses/F404"
+        "500":
+          $ref: "#/components/responses/F500"
+  /chat/read:
+    post:
+      tags:
+        - Chat
+      operationId: markMyThreadRead
+      summary: Als gelesen markieren [KUNDE]
+      description: Bis jetzt.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Gelesen
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Gelesen"
+        "401":
+          $ref: "#/components/responses/F401"
+        "403":
+          $ref: "#/components/responses/F403"
+        "404":
+          $ref: "#/components/responses/F404"
+  /chat/threads:
+    get:
+      tags:
+        - Chat
+      operationId: listThreads
+      summary: Posteingang [MITARBEITER]
+      description: >-
+        Gespräche, die der angemeldete Mitarbeiter sehen darf, zuletzt geändert zuerst. `unread=true` filtert
+        **innerhalb der Seite**; `total` zählt ungefiltert.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: Nur Gespräche mit diesem Stand
+          schema:
+            type: string
+        - name: unread
+          in: query
+          required: false
+          description: Nur ungelesene
+          schema:
+            type: boolean
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Gespräche
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/GespraechKurz"
+                  pagination:
+                    $ref: "#/components/schemas/Seiten"
+        "401":
+          $ref: "#/components/responses/F401"
+        "403":
+          $ref: "#/components/responses/F403"
+        "500":
+          $ref: "#/components/responses/F500"
+  /chat/threads/{id}/messages:
+    get:
+      tags:
+        - Chat
+      operationId: listThreadMessages
+      summary: Nachrichten eines Gesprächs [MITARBEITER]
+      description: Neueste zuerst. Ein fremdes oder unbekanntes Gespräch liefert eine leere Liste.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Gespräch
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Nachrichten
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Nachricht"
+                  pagination:
+                    $ref: "#/components/schemas/Seiten"
+        "401":
+          $ref: "#/components/responses/F401"
+        "403":
+          $ref: "#/components/responses/F403"
+        "500":
+          $ref: "#/components/responses/F500"
+    post:
+      tags:
+        - Chat
+      operationId: replyInThread
+      summary: Antworten [MITARBEITER]
+      description: "`sender_kind` ist `advisor`, wenn der Aufrufer der zugeordnete Berater ist, sonst `online_team`."
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Gespräch
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                body:
+                  type: string
+              required:
+                - body
+            example:
+              body: Guten Tag, ich habe eine Frage.
+      responses:
+        "201":
+          description: Gesendet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Nachricht"
+        "400":
+          $ref: "#/components/responses/F400"
+        "401":
+          $ref: "#/components/responses/F401"
+        "403":
+          $ref: "#/components/responses/F403"
+        "404":
+          $ref: "#/components/responses/F404"
+        "500":
+          $ref: "#/components/responses/F500"
+  /chat/threads/{id}/read:
+    patch:
+      tags:
+        - Chat
+      operationId: markThreadRead
+      summary: Gespräch als gelesen markieren [MITARBEITER]
+      description: Bis jetzt, nur für den Aufrufer.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Gespräch
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Gelesen
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Gelesen"
+        "401":
+          $ref: "#/components/responses/F401"
+        "403":
+          $ref: "#/components/responses/F403"
+        "404":
+          $ref: "#/components/responses/F404"
+        "500":
+          $ref: "#/components/responses/F500"
+  /chat/threads/{id}/canned-replies:
+    get:
+      tags:
+        - Chat
+      operationId: listCannedReplies
+      summary: Antwortvorschläge [MITARBEITER]
+      description: Passende zuerst. Der Text kommt bearbeitbar ins Eingabefeld, gesendet wird nichts.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Gespräch
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Vorschläge
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        text:
+                          type: string
+                        category:
+                          type:
+                            - string
+                            - "null"
+        "401":
+          $ref: "#/components/responses/F401"
+        "403":
+          $ref: "#/components/responses/F403"
+        "500":
+          $ref: "#/components/responses/F500"
+  /notifications:
+    get:
+      tags:
+        - Benachrichtigungen
+      operationId: listNotifications
+      summary: Meine Benachrichtigungen [BEIDE]
+      description: Neueste zuerst.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: unread
+          in: query
+          required: false
+          description: Nur ungelesene
+          schema:
+            type: boolean
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Benachrichtigungen
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Benachrichtigung"
+                  pagination:
+                    $ref: "#/components/schemas/Seiten"
+        "401":
+          $ref: "#/components/responses/F401"
+        "403":
+          $ref: "#/components/responses/F403"
+        "500":
+          $ref: "#/components/responses/F500"
+  /notifications/{id}:
+    patch:
+      tags:
+        - Benachrichtigungen
+      operationId: markNotificationRead
+      summary: Als gelesen markieren [BEIDE]
+      description: "Nur `is_read: true`. Eine fremde Benachrichtigung antwortet mit 404."
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Benachrichtigung
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                is_read:
+                  type: boolean
+                  const: true
+              required:
+                - is_read
+            example:
+              is_read: true
+      responses:
+        "200":
+          description: Gelesen
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  is_read:
+                    type: boolean
+        "400":
+          $ref: "#/components/responses/F400"
+        "401":
+          $ref: "#/components/responses/F401"
+        "403":
+          $ref: "#/components/responses/F403"
+        "404":
+          $ref: "#/components/responses/F404"
+        "500":
+          $ref: "#/components/responses/F500"
+  /notification-preferences:
+    get:
+      tags:
+        - Benachrichtigungen
+      operationId: getNotificationPreferences
+      summary: Meine Einstellungen [BEIDE]
+      description: Ohne gespeicherte Einstellung kommen die Vorgaben.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Einstellungen
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Einstellungen"
+        "401":
+          $ref: "#/components/responses/F401"
+        "403":
+          $ref: "#/components/responses/F403"
+        "500":
+          $ref: "#/components/responses/F500"
+    put:
+      tags:
+        - Benachrichtigungen
+      operationId: putNotificationPreferences
+      summary: Einstellungen ersetzen [BEIDE]
+      description: Ersetzt alles; ein fehlendes Feld bekommt seine Vorgabe.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Einstellungen"
+      responses:
+        "200":
+          description: Einstellungen
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Einstellungen"
+        "400":
+          $ref: "#/components/responses/F400"
+        "401":
+          $ref: "#/components/responses/F401"
+        "403":
+          $ref: "#/components/responses/F403"
+        "500":
+          $ref: "#/components/responses/F500"
+  /devices:
+    post:
+      tags:
+        - Benachrichtigungen
+      operationId: registerDevice
+      summary: Gerät für Push anmelden [BEIDE]
+      description: >-
+        **Nach jeder Anmeldung aufrufen**, auch wenn sich nur der Nutzer geändert hat: Ein Gerät hat genau einen Token,
+        er wandert zum angemeldeten Nutzer.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+                  description: Push-Token des Geräts
+                platform:
+                  type: string
+                  enum:
+                    - ios
+                    - android
+                    - web
+              required:
+                - token
+                - platform
+            example:
+              token: …
+              platform: ios
+      responses:
+        "201":
+          description: Angemeldet
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  token:
+                    type: string
+                  platform:
+                    type: string
+                    enum:
+                      - ios
+                      - android
+                      - web
+                  last_seen_at:
+                    type: string
+                    description: Zuletzt angemeldet
+                    format: date-time
+        "400":
+          $ref: "#/components/responses/F400"
+        "401":
+          $ref: "#/components/responses/F401"
+        "403":
+          $ref: "#/components/responses/F403"
+        "500":
+          $ref: "#/components/responses/F500"
+  /devices/{token}:
+    delete:
+      tags:
+        - Benachrichtigungen
+      operationId: unregisterDevice
+      summary: Gerät abmelden [BEIDE]
+      description: >-
+        Beim Abmelden oder wenn der Token ungültig wird. Nur das eigene Gerät; passt nichts, kommt 404 (auch beim
+        zweiten Aufruf).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          description: Push-Token, URL-kodiert
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Abgemeldet
+        "401":
+          $ref: "#/components/responses/F401"
+        "403":
+          $ref: "#/components/responses/F403"
+        "404":
+          $ref: "#/components/responses/F404"
+        "500":
+          $ref: "#/components/responses/F500"
+  /tickets:
+    post:
+      tags:
+        - Support
+      operationId: createTicket
+      summary: Anfrage anlegen
+      description: Fehler, Frage oder Idee melden. Höchstens 20 je Melder und Stunde.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TicketNeu"
+            example:
+              art: frage
+              titel: Buchung ohne Gebühr stornieren?
+              text: Wie storniere ich eine Buchung ohne Gebühr?
+              melder:
+                extern_id: usr_8812
+                name: Lea Meier
+                email: lea.meier@beispiel.de
+                rolle: rezeption
+              kunde:
+                extern_id: hotel_seeblick
+                name: Hotel Seeblick
+              ruecksprung_url: https://app.beispiel.de/hilfe?ticket={id}
+      responses:
+        "201":
+          description: Angelegt
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  nummer:
+                    type: string
+                    examples:
+                      - T-1043
+                  status:
+                    $ref: "#/components/schemas/TicketStatus"
+                  erstellt_am:
+                    type: string
+                    format: date-time
+        "400":
+          $ref: "#/components/responses/S400"
+        "401":
+          $ref: "#/components/responses/S401"
+        "413":
+          $ref: "#/components/responses/S413"
+        "429":
+          $ref: "#/components/responses/S429"
+        "503":
+          $ref: "#/components/responses/S503"
+      security:
+        - supportKey: []
+      servers:
+        - url: https://agrctimmaaoywlsuoglc.supabase.co/functions/v1/support/v1
+          description: Support-API
+    get:
+      tags:
+        - Support
+      operationId: listTickets
+      summary: Meine Anfragen
+      description: >-
+        Alle Anfragen eines Melders oder (`sicht=kunde`) eines Kunden, neueste zuerst, höchstens 200. Höchstens 600
+        Abrufe je Melder und Stunde.
+      parameters:
+        - name: melder
+          in: query
+          required: false
+          description: Eure Kennung der Person
+          schema:
+            type: string
+        - name: kunde
+          in: query
+          required: false
+          description: Eure Kennung des Unternehmens, nur mit `sicht=kunde`
+          schema:
+            type: string
+        - name: sicht
+          in: query
+          required: false
+          description: >-
+            Vorgabe `melder`. `kunde` nur senden, wenn **euer** System sicher weiß, dass der Nutzer Admin dieses Kunden
+            ist
+          schema:
+            type: string
+            enum:
+              - melder
+              - kunde
+      responses:
+        "200":
+          description: Liste
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tickets:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TicketKurz"
+        "400":
+          $ref: "#/components/responses/S400"
+        "401":
+          $ref: "#/components/responses/S401"
+        "429":
+          $ref: "#/components/responses/S429"
+        "503":
+          $ref: "#/components/responses/S503"
+      security:
+        - supportKey: []
+      servers:
+        - url: https://agrctimmaaoywlsuoglc.supabase.co/functions/v1/support/v1
+          description: Support-API
+  /tickets/{id}:
+    get:
+      tags:
+        - Support
+      operationId: getTicket
+      summary: Eine Anfrage mit Verlauf
+      description: >-
+        Mit allen öffentlichen Antworten und einem Bildlink (10 Minuten). Ruft der Melder selbst ab, gelten die
+        Antworten danach als gelesen; die Kundensicht ändert daran nichts. Interne Notizen kommen nie mit.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Ticket
+          schema:
+            type: string
+            format: uuid
+        - name: melder
+          in: query
+          required: false
+          description: Eure Kennung der Person
+          schema:
+            type: string
+        - name: kunde
+          in: query
+          required: false
+          description: Eure Kennung des Unternehmens, nur mit `sicht=kunde`
+          schema:
+            type: string
+        - name: sicht
+          in: query
+          required: false
+          description: >-
+            Vorgabe `melder`. `kunde` nur senden, wenn **euer** System sicher weiß, dass der Nutzer Admin dieses Kunden
+            ist
+          schema:
+            type: string
+            enum:
+              - melder
+              - kunde
+      responses:
+        "200":
+          description: Ticket
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ticket"
+        "401":
+          $ref: "#/components/responses/S401"
+        "403":
+          $ref: "#/components/responses/S403"
+        "404":
+          $ref: "#/components/responses/S404"
+        "429":
+          $ref: "#/components/responses/S429"
+        "503":
+          $ref: "#/components/responses/S503"
+      security:
+        - supportKey: []
+      servers:
+        - url: https://agrctimmaaoywlsuoglc.supabase.co/functions/v1/support/v1
+          description: Support-API
+  /tickets/{id}/antworten:
+    post:
+      tags:
+        - Support
+      operationId: replyTicket
+      summary: Antworten oder nachfragen
+      description: >-
+        Ein erledigtes Ticket geht dadurch wieder auf `eingegangen`. Antworten und Bestätigen zusammen höchstens 60 je
+        Melder und Stunde.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Ticket
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                melder_extern_id:
+                  type: string
+                text:
+                  type: string
+                  minLength: 1
+                  maxLength: 4000
+              required:
+                - melder_extern_id
+                - text
+            example:
+              melder_extern_id: usr_8812
+              text: Danke, und bei Gruppenbuchungen?
+      responses:
+        "201":
+          description: Gespeichert
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  am:
+                    type: string
+                    format: date-time
+        "400":
+          $ref: "#/components/responses/S400"
+        "401":
+          $ref: "#/components/responses/S401"
+        "403":
+          $ref: "#/components/responses/S403"
+        "404":
+          $ref: "#/components/responses/S404"
+        "429":
+          $ref: "#/components/responses/S429"
+        "503":
+          $ref: "#/components/responses/S503"
+      security:
+        - supportKey: []
+      servers:
+        - url: https://agrctimmaaoywlsuoglc.supabase.co/functions/v1/support/v1
+          description: Support-API
+  /tickets/{id}/bestaetigen:
+    post:
+      tags:
+        - Support
+      operationId: confirmTicket
+      summary: „Hat geholfen"
+      description: "`true` schließt das Ticket, `false` öffnet es wieder (`eingegangen`)."
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Ticket
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                melder_extern_id:
+                  type: string
+                hilfreich:
+                  type: boolean
+              required:
+                - melder_extern_id
+                - hilfreich
+            example:
+              melder_extern_id: usr_8812
+              hilfreich: true
+      responses:
+        "200":
+          description: Gespeichert
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  status:
+                    $ref: "#/components/schemas/TicketStatus"
+        "400":
+          $ref: "#/components/responses/S400"
+        "401":
+          $ref: "#/components/responses/S401"
+        "403":
+          $ref: "#/components/responses/S403"
+        "404":
+          $ref: "#/components/responses/S404"
+        "429":
+          $ref: "#/components/responses/S429"
+        "503":
+          $ref: "#/components/responses/S503"
+      security:
+        - supportKey: []
+      servers:
+        - url: https://agrctimmaaoywlsuoglc.supabase.co/functions/v1/support/v1
+          description: Support-API
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Zugangstoken einer Person aus der Anmeldung.
+    apiKey:
+      type: http
+      scheme: bearer
+      description: "API-Schlüssel eines Mandanten, `Authorization: Bearer tyb_live_…`. Nur lesen."
+    supportKey:
+      type: http
+      scheme: bearer
+      description: "Support-Schlüssel eines Produkts, `Authorization: Bearer tyb_live_…`. Nur im Backend des Produkts."
+  parameters:
+    Page:
+      name: page
+      in: query
+      required: false
+      description: Seite, ab 1
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Einträge je Seite
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 25
+    AufgabenStatus:
+      name: status
+      in: query
+      required: false
+      description: "Wiederholbar oder mit Komma: `open`, `in_progress`, `done`, `cancelled`"
+      schema:
+        type: array
+        items:
+          type: string
+          enum:
+            - open
+            - in_progress
+            - done
+            - cancelled
+      style: form
+      explode: true
+  responses:
+    F400:
+      description: Eingabe ungültig
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Fehler"
+          example:
+            error:
+              code: validation_error
+              message: assigned_to muss eine UUID sein.
+    F401:
+      description: Anmeldung fehlt oder ist ungültig
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Fehler"
+          example:
+            error:
+              code: unauthorized
+              message: Token fehlt oder ist ungueltig.
+    F403:
+      description: Angemeldet, aber nicht erlaubt
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Fehler"
+          example:
+            error:
+              code: forbidden
+              message: Kein aktiver Tenant im Token.
+    F404:
+      description: Nicht gefunden - oder nicht sichtbar, das wird nicht unterschieden
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Fehler"
+          example:
+            error:
+              code: not_found
+              message: Kontakt nicht gefunden.
+    F500:
+      description: Interner Fehler
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Fehler"
+          example:
+            error:
+              code: server_error
+              message: Interner Fehler.
+    S400:
+      description: Pflichtfeld fehlt, zu lang, falsche Form
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SupportFehler"
+          example:
+            fehler: ungueltig
+            meldung: Pflichtfeld fehlt, ist zu lang oder hat die falsche Form.
+    S401:
+      description: Schlüssel fehlt oder ist ungültig
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SupportFehler"
+          example:
+            fehler: nicht_angemeldet
+            meldung: Schlüssel fehlt oder ist ungültig.
+    S403:
+      description: Ticket gehört nicht zu diesem Melder, Kunden oder Produkt
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SupportFehler"
+          example:
+            fehler: kein_zugriff
+            meldung: Das Ticket gehört nicht zu diesem Melder, Kunden oder Produkt.
+    S404:
+      description: Ticket gibt es nicht
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SupportFehler"
+          example:
+            fehler: nicht_gefunden
+            meldung: Dieses Ticket gibt es nicht.
+    S413:
+      description: Bild über 2 MB
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SupportFehler"
+          example:
+            fehler: bild_zu_gross
+            meldung: Das Bild ist größer als 2 MB.
+    S429:
+      description: Zu viele Aufrufe je Melder und Stunde
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SupportFehler"
+          example:
+            fehler: zu_viele
+            meldung: Mehr als 20 Anfragen je Melder und Stunde. Bitte später erneut senden.
+    S503:
+      description: Kurz nicht erreichbar, später erneut senden
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SupportFehler"
+          example:
+            fehler: wartung
+            meldung: Der Helpdesk ist kurz nicht erreichbar. Bitte später erneut senden.
+  schemas:
+    Fehler:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              examples:
+                - validation_error
+            message:
+              type: string
+          required:
+            - code
+            - message
+      required:
+        - error
+    Seiten:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+    Me:
+      type: object
+      properties:
+        tenant:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            slug:
+              type: string
+            name:
+              type: string
+            brand:
+              type: object
+              properties:
+                accent:
+                  type:
+                    - string
+                    - "null"
+                font:
+                  type:
+                    - string
+                    - "null"
+                logo_url:
+                  type:
+                    - string
+                    - "null"
+            enabled_modules:
+              type: array
+              items:
+                type: string
+        user:
+          oneOf:
+            - type: object
+              properties:
+                id:
+                  type: string
+                  format: uuid
+                vorname:
+                  type:
+                    - string
+                    - "null"
+                nachname:
+                  type:
+                    - string
+                    - "null"
+                email:
+                  type:
+                    - string
+                    - "null"
+                role:
+                  type: string
+            - type: "null"
+        advisor:
+          description: Nur für Kunden
+          oneOf:
+            - type: object
+              properties:
+                id:
+                  type: string
+                  format: uuid
+                vorname:
+                  type:
+                    - string
+                    - "null"
+                nachname:
+                  type:
+                    - string
+                    - "null"
+                role:
+                  type: string
+                avatar_url:
+                  type:
+                    - string
+                    - "null"
+            - type: "null"
+      required:
+        - tenant
+        - user
+    Person:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        anrede:
+          type:
+            - string
+            - "null"
+        vorname:
+          type:
+            - string
+            - "null"
+        nachname:
+          type:
+            - string
+            - "null"
+        email:
+          type:
+            - string
+            - "null"
+        phone_mobile:
+          type:
+            - string
+            - "null"
+        phone_landline:
+          type:
+            - string
+            - "null"
+    PersonVoll:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        anrede:
+          type:
+            - string
+            - "null"
+        vorname:
+          type:
+            - string
+            - "null"
+        nachname:
+          type:
+            - string
+            - "null"
+        email:
+          type:
+            - string
+            - "null"
+        phone_mobile:
+          type:
+            - string
+            - "null"
+        phone_landline:
+          type:
+            - string
+            - "null"
+        is_primary:
+          type: boolean
+    KontaktKurz:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+            - neu
+            - in_qualifizierung
+            - qualifiziert
+            - pool
+            - gewonnen
+            - verloren
+            - tot
+            - abgesagt
+            - im_bau
+            - uebergeben
+        pipeline_stage:
+          type:
+            - string
+            - "null"
+          description: Stufe im Vertrieb; die möglichen Werte hängen vom Mandanten ab
+        ort:
+          type:
+            - string
+            - "null"
+        plz:
+          type:
+            - string
+            - "null"
+        region:
+          type:
+            - string
+            - "null"
+        source:
+          type:
+            - string
+            - "null"
+          description: Herkunft
+        hausberater_user_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+          description: Zugeordneter Berater
+        created_at:
+          type: string
+          format: date-time
+        primary_person:
+          oneOf:
+            - $ref: "#/components/schemas/Person"
+            - type: "null"
+    Kontakt:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+            - neu
+            - in_qualifizierung
+            - qualifiziert
+            - pool
+            - gewonnen
+            - verloren
+            - tot
+            - abgesagt
+            - im_bau
+            - uebergeben
+        pipeline_stage:
+          type:
+            - string
+            - "null"
+          description: Stufe im Vertrieb; die möglichen Werte hängen vom Mandanten ab
+        ort:
+          type:
+            - string
+            - "null"
+        plz:
+          type:
+            - string
+            - "null"
+        region:
+          type:
+            - string
+            - "null"
+        source:
+          type:
+            - string
+            - "null"
+          description: Herkunft
+        hausberater_user_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+          description: Zugeordneter Berater
+        created_at:
+          type: string
+          format: date-time
+        primary_person:
+          oneOf:
+            - $ref: "#/components/schemas/Person"
+            - type: "null"
+        addr_street:
+          type:
+            - string
+            - "null"
+        addr_house_no:
+          type:
+            - string
+            - "null"
+        notes:
+          type:
+            - string
+            - "null"
+        katalog_digital:
+          type:
+            - boolean
+            - "null"
+        katalog_print:
+          type:
+            - boolean
+            - "null"
+        updated_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        archiviert:
+          type: boolean
+        spam:
+          type: boolean
+        persons:
+          type: array
+          items:
+            $ref: "#/components/schemas/PersonVoll"
+        firmen:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                format: uuid
+              name:
+                type: string
+              rechtsform:
+                type:
+                  - string
+                  - "null"
+              plz:
+                type:
+                  - string
+                  - "null"
+              ort:
+                type:
+                  - string
+                  - "null"
+              funktion:
+                type:
+                  - string
+                  - "null"
+              ist_ansprechpartner:
+                type: boolean
+              person_id:
+                type: string
+                format: uuid
+    Aufgabe:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type:
+            - string
+            - "null"
+        task_type:
+          type: string
+          examples:
+            - call_back
+            - send_document
+            - schedule_meeting
+            - follow_up
+            - review
+            - approval
+            - custom
+        status:
+          type: string
+          enum:
+            - open
+            - in_progress
+            - done
+            - cancelled
+        priority:
+          type: string
+          enum:
+            - low
+            - normal
+            - high
+            - urgent
+        due_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        assignee_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        contact_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        snoozed_until:
+          type:
+            - string
+            - "null"
+          format: date-time
+    AufgabeMitKontakt:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type:
+            - string
+            - "null"
+        task_type:
+          type: string
+          examples:
+            - call_back
+            - send_document
+            - schedule_meeting
+            - follow_up
+            - review
+            - approval
+            - custom
+        status:
+          type: string
+          enum:
+            - open
+            - in_progress
+            - done
+            - cancelled
+        priority:
+          type: string
+          enum:
+            - low
+            - normal
+            - high
+            - urgent
+        due_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        assignee_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        contact_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        snoozed_until:
+          type:
+            - string
+            - "null"
+          format: date-time
+        contact:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type:
+                - string
+                - "null"
+            ort:
+              type:
+                - string
+                - "null"
+    Dokument:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type:
+            - string
+            - "null"
+        file_name:
+          type:
+            - string
+            - "null"
+        category:
+          type:
+            - string
+            - "null"
+        created_at:
+          type: string
+          format: date-time
+        download_url:
+          type:
+            - string
+            - "null"
+          description: Gilt fünf Minuten
+    DokumentIntern:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type:
+            - string
+            - "null"
+        file_name:
+          type:
+            - string
+            - "null"
+        category:
+          type:
+            - string
+            - "null"
+        created_at:
+          type: string
+          format: date-time
+        download_url:
+          type:
+            - string
+            - "null"
+          description: Gilt fünf Minuten
+        visibility:
+          type: string
+          enum:
+            - internal
+            - customer_ready
+    Empfehlung:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        payout_status:
+          type: string
+          enum:
+            - offen
+            - faellig
+            - ausgezahlt
+            - storniert
+        payout_amount_eur:
+          type:
+            - number
+            - "null"
+        created_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        paid_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        status:
+          type: string
+          enum:
+            - registered
+            - journey_started
+            - contracted
+            - handed_over
+            - paid
+            - storniert
+          description: Fehlt unterhalb der Datenschutz-Schwelle
+    EmpfehlungNeu:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        validity:
+          type: string
+          enum:
+            - gueltig
+            - bestehend
+            - ungeklaert
+        payout_status:
+          type: string
+        created:
+          type: boolean
+    Haustag:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+            - pending
+            - confirmed
+            - declined
+            - done
+        timeframe:
+          type:
+            - string
+            - "null"
+        day_preference:
+          type:
+            - string
+            - "null"
+        created_at:
+          type: string
+          format: date-time
+        scheduled:
+          oneOf:
+            - type: object
+              properties:
+                date:
+                  type: string
+                  format: date
+                start:
+                  type:
+                    - string
+                    - "null"
+                end:
+                  type:
+                    - string
+                    - "null"
+                district:
+                  type:
+                    - string
+                    - "null"
+            - type: "null"
+        visitor_link:
+          oneOf:
+            - type: object
+              properties:
+                code:
+                  type: string
+                url:
+                  type: string
+                  format: uri
+            - type: "null"
+        thank_you:
+          oneOf:
+            - type: object
+              properties:
+                amount_eur:
+                  type:
+                    - number
+                    - "null"
+                payout_status:
+                  type:
+                    - string
+                    - "null"
+                paid_at:
+                  type:
+                    - string
+                    - "null"
+                  format: date-time
+            - type: "null"
+        decline_reason:
+          type:
+            - string
+            - "null"
+    Gespraech:
+      type: object
+      properties:
+        thread_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        unread:
+          type: integer
+        participants:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                format: uuid
+              name:
+                type: string
+              avatar_url:
+                type:
+                  - string
+                  - "null"
+              role:
+                type: string
+                enum:
+                  - advisor
+                  - online_team
+    GespraechKurz:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        contact_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        status:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
+        last_message:
+          oneOf:
+            - type: object
+              properties:
+                body:
+                  type: string
+                created_at:
+                  type: string
+                  format: date-time
+                sender_kind:
+                  type: string
+                  enum:
+                    - customer
+                    - advisor
+                    - online_team
+                    - system
+                    - assistant
+            - type: "null"
+        unread:
+          type: integer
+        assigned_advisor_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+    Nachricht:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        thread_id:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        body:
+          type: string
+        sender_kind:
+          type: string
+          enum:
+            - customer
+            - advisor
+            - online_team
+            - system
+            - assistant
+          description: >-
+            `advisor` = zugeordneter Berater, `online_team` = unterstützendes Team, `system` = automatischer Hinweis,
+            `assistant` = digitaler Assistent
+        sender:
+          oneOf:
+            - type: object
+              properties:
+                id:
+                  type: string
+                  format: uuid
+                name:
+                  type: string
+                avatar_url:
+                  type:
+                    - string
+                    - "null"
+            - type: "null"
+    Gelesen:
+      type: object
+      properties:
+        thread_id:
+          type: string
+          format: uuid
+        read:
+          type: boolean
+    Benachrichtigung:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+        title:
+          type: string
+        body:
+          type:
+            - string
+            - "null"
+        link:
+          type:
+            - string
+            - "null"
+        is_read:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+    Einstellungen:
+      type: object
+      properties:
+        in_app:
+          type: boolean
+          default: true
+        email:
+          type: boolean
+          default: true
+        email_digest:
+          type: string
+          enum:
+            - instant
+            - hourly
+            - daily
+            - "off"
+          default: instant
+        muted_types:
+          type: array
+          items:
+            type: string
+          default: []
+    SupportFehler:
+      type: object
+      properties:
+        fehler:
+          type: string
+          enum:
+            - ungueltig
+            - nicht_angemeldet
+            - kein_zugriff
+            - nicht_gefunden
+            - bild_zu_gross
+            - zu_viele
+            - wartung
+        meldung:
+          type: string
+          description: Satz auf Deutsch, zum Anzeigen geeignet
+      required:
+        - fehler
+        - meldung
+    TicketArt:
+      type: string
+      enum:
+        - fehler
+        - frage
+        - idee
+    TicketStatus:
+      type: string
+      enum:
+        - eingegangen
+        - in_arbeit
+        - geplant
+        - erledigt
+        - geschlossen
+      description: "`geplant` nur bei Ideen; `erledigt` = Antwort liegt vor; `geschlossen` = bestätigt oder abgeschlossen"
+    TicketNeu:
+      type: object
+      properties:
+        art:
+          $ref: "#/components/schemas/TicketArt"
+        titel:
+          type: string
+          description: Fehlt er, entsteht er aus den ersten Worten von `text`
+          minLength: 3
+          maxLength: 80
+        text:
+          type: string
+          minLength: 3
+          maxLength: 4000
+        melder:
+          type: object
+          properties:
+            extern_id:
+              type: string
+              description: Eure dauerhafte Kennung der Person
+              maxLength: 120
+            name:
+              type: string
+              maxLength: 120
+            email:
+              type: string
+              format: email
+            rolle:
+              type: string
+              maxLength: 60
+          required:
+            - extern_id
+            - email
+        kunde:
+          type: object
+          properties:
+            extern_id:
+              type: string
+              description: Eure dauerhafte Kennung des Unternehmens
+              maxLength: 120
+            name:
+              type: string
+              maxLength: 160
+          required:
+            - extern_id
+            - name
+        kontext:
+          type: object
+          description: Frei, höchstens 8.000 Byte
+          properties:
+            url:
+              type: string
+            seite:
+              type: string
+            app_version:
+              type: string
+            browser:
+              type: string
+            viewport:
+              type: string
+            letzter_fehler:
+              type:
+                - string
+                - "null"
+            zeitpunkt:
+              type: string
+              format: date-time
+        bild:
+          type: string
+          description: Data-URL, PNG oder WebP, höchstens 2 MB, bereits geschwärzt
+        ruecksprung_url:
+          type: string
+          description: Link in der Antwort-Mail, `https://`; `{id}` wird ersetzt
+      required:
+        - art
+        - text
+        - melder
+        - kunde
+    TicketAntwort:
+      type: object
+      properties:
+        von:
+          type: string
+          enum:
+            - melder
+            - support
+        name:
+          type: string
+        text:
+          type: string
+        am:
+          type: string
+          format: date-time
+    TicketKurz:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        nummer:
+          type: string
+          examples:
+            - T-1043
+        art:
+          $ref: "#/components/schemas/TicketArt"
+        titel:
+          type: string
+        status:
+          $ref: "#/components/schemas/TicketStatus"
+        erstellt_am:
+          type: string
+          format: date-time
+        geaendert_am:
+          type: string
+          format: date-time
+        letzte_antwort:
+          oneOf:
+            - $ref: "#/components/schemas/TicketAntwort"
+            - type: "null"
+        ungelesen:
+          type: integer
+        melder_name:
+          type:
+            - string
+            - "null"
+    Ticket:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        nummer:
+          type: string
+          examples:
+            - T-1043
+        art:
+          $ref: "#/components/schemas/TicketArt"
+        titel:
+          type: string
+        status:
+          $ref: "#/components/schemas/TicketStatus"
+        erstellt_am:
+          type: string
+          format: date-time
+        geaendert_am:
+          type: string
+          format: date-time
+        letzte_antwort:
+          oneOf:
+            - $ref: "#/components/schemas/TicketAntwort"
+            - type: "null"
+        ungelesen:
+          type: integer
+        melder_name:
+          type:
+            - string
+            - "null"
+        text:
+          type: string
+        bild_url:
+          type:
+            - string
+            - "null"
+          description: Gilt 10 Minuten
+        antworten:
+          type: array
+          items:
+            $ref: "#/components/schemas/TicketAntwort"
