@@ -1,0 +1,35 @@
+name: Changelog guard
+
+# Ensures the docs changelog can never go stale: any PR that changes openapi.yaml
+# must bump info.version AND add a matching row to the Changelog table in info.description.
+
+on:
+  pull_request:
+    paths:
+      - openapi.yaml
+
+jobs:
+  changelog:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Require a version bump and changelog entry
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          base_version="$(git show "$base:openapi.yaml" 2>/dev/null | grep -E '^  version:' | head -1 | awk '{print $2}')"
+          head_version="$(grep -E '^  version:' openapi.yaml | head -1 | awk '{print $2}')"
+          echo "base version: ${base_version:-<none>} / head version: ${head_version:-<none>}"
+
+          if [ -z "$head_version" ]; then
+            echo "::error::Could not read info.version from openapi.yaml"; exit 1
+          fi
+          if [ "$base_version" = "$head_version" ]; then
+            echo "::error::openapi.yaml changed but info.version is still $head_version. Bump the version and add a Changelog row."; exit 1
+          fi
+          if ! grep -qF "| **$head_version**" openapi.yaml; then
+            echo "::error::No Changelog row found for version $head_version in info.description."; exit 1
+          fi
+          echo "OK: version bumped to $head_version and Changelog row present."
