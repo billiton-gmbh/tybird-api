@@ -504,11 +504,14 @@ tags:
 
       |---|
 
-      | **1.6.0** · TT.MM.JJJJ · MCP - Entwicklungsteams können Anfragen suchen, den Kunden eindeutig bestimmen, mit
+      | **1.6.0** · 2026-11-25 · MCP - Entwicklungsteams können Anfragen suchen, den Kunden eindeutig bestimmen, mit
       Prüfung auf Dubletten anlegen und die Lage ihres Produkts abrufen. |
 
-      | **2.1.0** · TT.MM.JJJJ · Doku - Zwei neue Abschnitte auf „Arbeiten mit dem Helpdesk": eine Nachricht kommt
+      | **2.1.0** · 2026-11-25 · Doku - Zwei neue Abschnitte auf „Arbeiten mit dem Helpdesk": eine Nachricht kommt
       herein, und bei jedem Kontakt mit dem Konnektor. |
+
+      | **1.5.0** · 2026-11-25 · MCP - Weitere Werkzeuge für den Helpdesk: Priorität, Titel und Art ändern, zusammenlegen,
+      Anhänge lesen und anfügen, an die Entwicklung übergeben. Neue Status mit festen Übergängen. |
 
       | **2.0.1** · 2026-11-25 · MCP - Manager können den Zugang für sich selbst einrichten, wenn ihr Mandant das
       freigeschaltet hat. Er gilt nur, solange die Rolle besteht. |
