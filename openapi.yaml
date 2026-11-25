@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: tybird API
-  version: 2.0.1
+  version: 2.1.0
   summary: "Schnittstellen von tybird: App-API, Support-API und MCP-Server für Claude."
   description: >
     # tybird API
@@ -335,6 +335,51 @@ tags:
              {"art": "deploy", "wert": "25.11.2026, 15:00"}]}
           ```
 
+      **Eine Nachricht kommt herein** (Mail, WhatsApp, Anruf)
+
+
+      1. **Suchen.** `support_ticket_suchen` mit Produkt und Stichworten. Steht eine T-Nummer in der Nachricht, danach
+      suchen.
+
+          ```json
+          {"produkt": "awiti",
+           "text": "Karte gesperrt"}
+          ```
+      2. **Bei Zweifel nach der T-Nummer fragen**, statt ein zweites Ticket anzulegen.
+
+      3. **Kunde bestimmen.** `support_kunde_suchen` mit Name, Mail-Domain oder Kennung. Nur bei `eindeutig: true`
+      zuordnen; bei „nicht eindeutig" nachfragen und die Kandidaten nennen.
+
+          ```json
+          {"produkt": "awiti",
+           "name": "Beispiel GmbH",
+           "melder_mail": "lea@beispiel.de"}
+          ```
+      4. **Anlegen.** `support_ticket_anlegen` prüft selbst auf ähnliche Tickets und legt dann erst mit
+      `trotzdem_anlegen: true` an. Im CRM wird dabei nichts angelegt. Die Antwort nennt Nummer und Link und ob eine Mail
+      hinausgeht.
+
+          ```json
+          {"produkt": "awiti",
+           "kunde_id": "…",
+           "eingang_ueber": "whatsapp",
+           "art": "frage",
+           "titel": "Karte gesperrt",
+           "text": "…"}
+          ```
+
+      **Bei jedem Kontakt mit dem Konnektor**
+
+
+      1. **Lage holen:** `support_entwicklung_lage` für das eigene Produkt.
+
+      2. **Übernommenes prüfen:** Was steht auf „In Entwicklung", von wem, seit wie vielen Tagen?
+
+      3. **Fertiges abgeben:** mit `support_entwicklung_fertig` auf „Zur Prüfung".
+
+      4. **Liegengebliebenes melden**, statt es stehen zu lassen.
+
+
       **Grenze.** Das Entwicklungsteam antwortet nicht dem Kunden und setzt nie „Gelöst". Es endet bei „Zur Prüfung";
       prüfen, lösen und antworten ist Sache des Supports. Reicht die Übergabe nicht, gehört die Rückfrage in eine
       Entwicklungsnotiz.
@@ -431,8 +476,10 @@ tags:
       tybird-Helpdesk über den MCP-Server ab, nur für <PRODUKT>.
 
 
-      1. Hole mit support_entwicklung_liste die Anfragen im Status
-         "Bereit für Entwicklung". Nimm nur Anfragen von <PRODUKT>.
+      0. Beginne jede Sitzung mit support_entwicklung_lage für <PRODUKT>.
+         Gib Fertiges auf "Zur Prüfung" und melde Liegengebliebenes.
+      1. Nimm aus "Bereit für Entwicklung" nur Anfragen von <PRODUKT>.
+
       2. Übernimm eine mit support_entwicklung_nehmen. Lies Übergabe,
          Verlauf und Anhänge nur in tybird. Lege keine GitHub-Issues an.
       3. Arbeite sie ab. Halte Zwischenstände mit
@@ -441,6 +488,10 @@ tags:
          auf PR, Commit und Deploy. Danach steht sie auf "Zur Prüfung".
       5. Antworte nie dem Kunden und setze nie "Gelöst". Fehlt dir etwas,
          schreibe es in eine Entwicklungsnotiz und nimm die nächste.
+      6. Bekommst du eine Nachricht eines Kunden: erst
+         support_ticket_suchen, bei Zweifel nach der T-Nummer fragen.
+         Sonst support_kunde_suchen und nur bei "eindeutig" mit
+         support_ticket_anlegen anlegen. Rate nie einen Kunden.
       ```
   - name: Changelog
     description: >
@@ -452,6 +503,15 @@ tags:
       | Version |
 
       |---|
+
+      | **1.6.0** · 2026-11-25 · MCP - Entwicklungsteams können Anfragen suchen, den Kunden eindeutig bestimmen, mit
+      Prüfung auf Dubletten anlegen und die Lage ihres Produkts abrufen. |
+
+      | **2.1.0** · 2026-11-25 · Doku - Zwei neue Abschnitte auf „Arbeiten mit dem Helpdesk": eine Nachricht kommt
+      herein, und bei jedem Kontakt mit dem Konnektor. |
+
+      | **1.5.0** · 2026-11-25 · MCP - Weitere Werkzeuge für den Helpdesk: Priorität, Titel und Art ändern, zusammenlegen,
+      Anhänge lesen und anfügen, an die Entwicklung übergeben. Neue Status mit festen Übergängen. |
 
       | **2.0.1** · 2026-11-25 · MCP - Manager können den Zugang für sich selbst einrichten, wenn ihr Mandant das
       freigeschaltet hat. Er gilt nur, solange die Rolle besteht. |
