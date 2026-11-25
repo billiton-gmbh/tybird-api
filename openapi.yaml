@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: tybird API
-  version: 2.1.0
+  version: 2.2.0
   summary: "Schnittstellen von tybird: App-API, Support-API und MCP-Server für Claude."
   description: >
     # tybird API
@@ -234,7 +234,7 @@ tags:
 
       - `support_tickets_liste` - Listet Anfragen mit Filtern nach Produkt, Status, Art und Zuständigem.
 
-      - `support_ticket_lesen` - Liest eine Anfrage mit allen Antworten, ohne die E-Mail des Melders.
+      - `support_ticket_lesen` - Liest eine Anfrage mit allen Antworten und der Liste der Anhänge, ohne die E-Mail des Melders.
 
       - `support_antworten` - Antwortet dem Melder öffentlich.
 
@@ -244,7 +244,8 @@ tags:
 
       - `support_zustaendig_setzen` - Setzt den Zuständigen oder gibt die Anfrage frei.
 
-      - `support_vormerken` - Merkt eine Anfrage für „Was ist neu?" vor.
+      - `support_vormerken` - Merkt eine Anfrage für „Was ist neu?" vor (hervorheben).
+      - `support_was_ist_neu` - Vorschläge für „Was ist neu?"; hervorgehobene zuerst, gesperrte nie.
   - name: Arbeiten mit dem Helpdesk
     description: >
       > **Stand.** Teil 1 gilt heute. Teil 2 gilt ab Vertrag v1.1 und ist **noch nicht verfügbar**. Heute geht im
@@ -503,6 +504,11 @@ tags:
       | Version |
 
       |---|
+
+      | **2.2.0** · 2026-11-25 · Doku und MCP 1.8.0 - Je Anfrage legt `was_ist_neu` fest, ob sie in „Was ist neu?" erscheint:
+      auto, hervorheben oder gesperrt. Neues Werkzeug `support_was_ist_neu` für die Vorschläge.
+      `support_ticket_lesen` nennt die Anhänge mit Name, Typ und Größe. Support-API: Dateien in unbekannten Feldern werden
+      mit 400 abgewiesen statt übergangen. |
 
       | **1.6.0** · 2026-11-25 · MCP - Entwicklungsteams können Anfragen suchen, den Kunden eindeutig bestimmen, mit
       Prüfung auf Dubletten anlegen und die Lage ihres Produkts abrufen. |
