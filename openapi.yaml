@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: tybird API
-  version: 2.0.0
+  version: 2.0.1
   summary: "Schnittstellen von tybird: App-API, Support-API und MCP-Server für Claude."
   description: >
     # tybird API
@@ -172,7 +172,8 @@ tags:
       3. Unter den erweiterten Einstellungen die **Client-ID** eintragen. Claude braucht einen eigenen OAuth-Client;
       seine Client-ID gibt billiton aus.
 
-      4. Verbinden, bei tybird anmelden, den **Mandanten wählen** und erlauben. Das darf heute ein Admin des Mandanten.
+      4. Verbinden, bei tybird anmelden, den **Mandanten wählen** und erlauben. Das darf ein Admin des Mandanten; ein
+      Manager für sich selbst, wenn der Mandant es freigeschaltet hat.
 
 
       ### Regeln
@@ -451,6 +452,9 @@ tags:
       | Version |
 
       |---|
+
+      | **2.0.1** · 2026-11-25 · MCP - Manager können den Zugang für sich selbst einrichten, wenn ihr Mandant das
+      freigeschaltet hat. Er gilt nur, solange die Rolle besteht. |
 
       | **2.0.0** · 2026-11-25 · Doku - Neue Referenz mit App-API, Support-API und MCP-Server an einer Stelle, als
       OpenAPI-Dokument zum Herunterladen. Dazu die Seite „Arbeiten mit dem Helpdesk" für Produkte und Entwicklungsteams.
