@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: tybird API
-  version: 2.5.0
+  version: 2.6.0
   summary: "Schnittstellen von tybird: App-API, Support-API und MCP-Server für Claude."
   description: >
     # tybird API
@@ -507,6 +507,12 @@ tags:
       | Version |
 
       |---|
+
+      | **2.6.0** · 2026-11-26 · Doku und MCP 1.12.0 - Dateiübergabe. Neue Werkzeuge: `dateien_uebergeben` (Name, Größe, Typ
+      und sha256 je Datei; Antwort mit signierter Upload-URL und curl-Befehl je Datei, 30 Minuten gültig; ohne Dateiliste öffnet
+      sich ein Fenster zum Wählen) und `dateien_abschliessen` (serverseitige Prüfung von Größe, sha256 und Dateianfang, in Teilen
+      bis 20 Dateien bzw. 300 MB). Ziele: Ticket und Antwort. Typen wie bisher plus TXT, CSV, HTML, XLSX, DOCX, MP4, WebM; Bild 5 MB,
+      Video 100 MB, sonst 20 MB. Kein OAuth-Token in Antworten oder Befehlen. |
 
       | **2.5.0** · 2026-11-26 · Doku und MCP 1.11.0 - Anhänge und interne Notizen. Neue Werkzeuge: `support_anhang_link`
       (Link zum Hochladen im Browser, mehrere Bilder und PDF bis je 10 MB, 30 Minuten gültig, Vorgabe intern),
