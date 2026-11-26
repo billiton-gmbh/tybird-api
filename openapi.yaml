@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: tybird API
-  version: 2.3.0
+  version: 2.4.0
   summary: "Schnittstellen von tybird: App-API, Support-API und MCP-Server für Claude."
   description: >
     # tybird API
@@ -277,12 +277,12 @@ tags:
       ### Teil 2: Als Entwicklungsteam abarbeiten (ab v1.1)
 
 
-      Der Helpdesk ist die einzige Quelle: Übergabe, Anhänge und Rückmeldung stehen dort. GitHub-Issues gibt es für
+      Der Helpdesk ist die einzige Quelle: Tickettext, Anhänge und Rückmeldung stehen dort. GitHub-Issues gibt es für
       Anfragen nicht. Gearbeitet wird über den MCP-Server (siehe „MCP-Server für Claude").
 
 
-      1. **Abholen.** Anfragen im Status „Bereit für Entwicklung", nur das eigene Produkt. Jede kommt mit ihrer
-      Übergabe.
+      1. **Abholen.** Anfragen im Status „Bereit für Entwicklung", nur das eigene Produkt. Jede kommt mit ihrem
+      Tickettext, dem Arbeitsauftrag (Ziel, Schritte zum Nachstellen, Akzeptanz).
 
           `support_entwicklung_liste`
 
@@ -484,7 +484,7 @@ tags:
          Gib Fertiges auf "Zur Prüfung" und melde Liegengebliebenes.
       1. Nimm aus "Bereit für Entwicklung" nur Anfragen von <PRODUKT>.
 
-      2. Übernimm eine mit support_entwicklung_nehmen. Lies Übergabe,
+      2. Übernimm eine mit support_entwicklung_nehmen. Lies Tickettext,
          Verlauf und Anhänge nur in tybird. Lege keine GitHub-Issues an.
       3. Arbeite sie ab. Halte Zwischenstände mit
          support_entwicklung_bericht fest.
@@ -507,6 +507,12 @@ tags:
       | Version |
 
       |---|
+
+      | **2.4.0** · 2026-11-26 · Doku und MCP 1.10.1 - Der Tickettext ist das Arbeitsdokument. Neues Werkzeug
+      `support_ticket_text_setzen`: ersetzt den Tickettext; jede alte Fassung bleibt erhalten, der Verlauf vermerkt
+      „Tickettext bearbeitet". Der Melder sieht in „Meine Anfragen" weiter seinen eigenen Text. Die Übergabe ist kein
+      Arbeitsweg mehr: `support_uebergabe_schreiben` setzt nur noch „Bereit für Entwicklung", das Feld `uebergabe` ist
+      veraltet. |
 
       | **2.3.0** · 2026-11-26 · Doku und MCP 1.10.0 - `support_kunde_suchen` findet ohne Groß- und Kleinschreibung,
       über Teilwörter in beliebiger Reihenfolge und über die Kennung; ohne Treffer nennt es ähnliche Namen. Neues Werkzeug
