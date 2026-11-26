@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: tybird API
-  version: 2.2.0
+  version: 2.3.0
   summary: "Schnittstellen von tybird: App-API, Support-API und MCP-Server für Claude."
   description: >
     # tybird API
@@ -349,7 +349,10 @@ tags:
       2. **Bei Zweifel nach der T-Nummer fragen**, statt ein zweites Ticket anzulegen.
 
       3. **Kunde bestimmen.** `support_kunde_suchen` mit Name, Mail-Domain oder Kennung. Nur bei `eindeutig: true`
-      zuordnen; bei „nicht eindeutig" nachfragen und die Kandidaten nennen.
+      zuordnen; bei „nicht eindeutig" nachfragen und die Kandidaten nennen. Groß- und Kleinschreibung zählen nicht; der
+      Name findet auch Teilwörter („nea taler" findet „NEA-Taler"). Ohne Treffer nennt `aehnliche` die nächsten Namen.
+      Fehlt der Kunde wirklich, legt ihn `support_kunde_anlegen` an, aber nur auf Wunsch des Nutzers: Produkt, die
+      Kennung beim Produkt (`kunde_extern_id`, bei Awiti die Netz-UUID) und der Name.
 
           ```json
           {"produkt": "awiti",
@@ -504,6 +507,11 @@ tags:
       | Version |
 
       |---|
+
+      | **2.3.0** · 2026-11-26 · Doku und MCP 1.10.0 - `support_kunde_suchen` findet ohne Groß- und Kleinschreibung,
+      über Teilwörter in beliebiger Reihenfolge und über die Kennung; ohne Treffer nennt es ähnliche Namen. Neues Werkzeug
+      `support_kunde_anlegen`: legt den Kunden eines Produkts mit seiner Kennung an und ordnet die Firma im CRM zu; prüft
+      vorher auf gleiche Kennung und ähnliche Namen. 1.9.0 ist für eine andere Änderung reserviert. |
 
       | **2.2.0** · 2026-11-25 · Doku und MCP 1.8.0 - Je Anfrage legt `was_ist_neu` fest, ob sie in „Was ist neu?" erscheint:
       auto, hervorheben oder gesperrt. Neues Werkzeug `support_was_ist_neu` für die Vorschläge.
