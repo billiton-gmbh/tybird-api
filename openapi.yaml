@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: tybird API
-  version: 2.4.0
+  version: 2.5.0
   summary: "Schnittstellen von tybird: App-API, Support-API und MCP-Server für Claude."
   description: >
     # tybird API
@@ -507,6 +507,15 @@ tags:
       | Version |
 
       |---|
+
+      | **2.5.0** · 2026-11-26 · Doku und MCP 1.11.0 - Anhänge und interne Notizen. Neue Werkzeuge: `support_anhang_link`
+      (Link zum Hochladen im Browser, mehrere Bilder und PDF bis je 10 MB, 30 Minuten gültig, Vorgabe intern),
+      `support_anhang_sichtbar_setzen` (Anhang für den Melder zeigen oder verbergen), `support_notiz_bearbeiten` und
+      `support_notiz_entfernen` (nur eigene interne Notizen, alte Fassung bleibt, Spur im Verlauf; Antworten an den Melder
+      bleiben unveränderbar). `support_anhang_anfuegen` nimmt mit `dateien` mehrere Dateien und meldet je Datei ein Ergebnis.
+      Anhänge nennen `sichtbar_fuer_melder` (= nicht intern). Höchstens 100 statt 10 Anhänge je Ticket bzw. Antwort, auch in
+      der Support-API (`bilder`, `anhaenge`, `anhang_ids`); je Datei unverändert Bild 5 MB, sonst 20 MB, Video 100 MB. Data-URLs
+      im JSON zusammen höchstens 20 MB, darüber kommt 413 mit dem Hinweis auf `POST /anhaenge` (signierter Upload). |
 
       | **2.4.0** · 2026-11-26 · Doku und MCP 1.10.1 - Der Tickettext ist das Arbeitsdokument. Neues Werkzeug
       `support_ticket_text_setzen`: ersetzt den Tickettext; jede alte Fassung bleibt erhalten, der Verlauf vermerkt
