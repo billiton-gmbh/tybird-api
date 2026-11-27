@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: tybird API
-  version: 2.7.0
+  version: 2.7.1
   summary: "Schnittstellen von tybird: App-API, Support-API und MCP-Server für Claude."
   description: >
     # tybird API
@@ -506,6 +506,10 @@ tags:
 
       |---|
 
+      | **2.7.1** · 2026-11-27 · Support-API: Anfragen tragen `quelle` (`produkt` oder `support`: vom Team erfasst, etwa nach
+      einem Anruf) und `eingang_ueber`. `sicht=kunde` liefert auch die vom Team erfassten Anfragen des Kunden. Neuer
+      Parameter `melder_email` an `GET /tickets` und `GET /tickets/{id}`. Eine alte Kunden-Kennung bleibt gültig, wenn das Team
+      sie ändert; `POST /kunden` übernimmt einen vorhandenen Kunden gleichen Namens und meldet ihn unter `uebernommen`. |
       | **2.7.0** · 2026-11-27 · Doku - Support-API an das tatsächliche Verhalten angeglichen: `anhaenge` (Data-URL) und
       `anhang_ids` in `POST /tickets` und `POST /tickets/{id}/antworten`, Anhänge in `GET /tickets/{id}`; `POST /anhaenge`
       (signierter Upload) und `POST /kunden` (Kundenabgleich) beschrieben; Status `rueckfrage` ergänzt (sechs Außenstatus);
@@ -1907,6 +1911,15 @@ paths:
           description: Eure Kennung der Person
           schema:
             type: string
+        - name: melder_email
+          in: query
+          required: false
+          description: >-
+            Mail-Adresse des Melders. Hat das Team für diese Adresse schon Anfragen erfasst, gehören sie ab jetzt zu diesem
+            Melder und erscheinen in der Liste.
+          schema:
+            type: string
+            format: email
         - name: kunde
           in: query
           required: false
@@ -1972,6 +1985,15 @@ paths:
           description: Eure Kennung der Person
           schema:
             type: string
+        - name: melder_email
+          in: query
+          required: false
+          description: >-
+            Mail-Adresse des Melders. Hat das Team für diese Adresse schon Anfragen erfasst, gehören sie ab jetzt zu diesem
+            Melder und erscheinen in der Liste.
+          schema:
+            type: string
+            format: email
         - name: kunde
           in: query
           required: false
@@ -2239,6 +2261,8 @@ paths:
       description: >-
         Legt die Kunden des Produkts mit ihrer dauerhaften `extern_id` an oder gleicht Name und Admin-Adressen ab. 1 bis
         500 Einträge je Aufruf, höchstens 20 Abgleiche je Stunde. Ein Kunde, der nicht mehr gesendet wird, bleibt bestehen.
+        Ist die `extern_id` unbekannt und gibt es genau einen noch nie abgeglichenen Kunden gleichen Namens (ohne
+        Groß/Klein), wird dieser übernommen statt doppelt angelegt; seine alte Kennung bleibt gültig.
       requestBody:
         required: true
         content:
@@ -2269,7 +2293,33 @@ paths:
             application/json:
               schema:
                 type: object
-                additionalProperties: true
+                properties:
+                  kunden:
+                    type: integer
+                  neu:
+                    type: integer
+                  uebernommen:
+                    type: integer
+                    description: Vorhandene Kunden, die die neue Kennung bekommen haben
+                  uebernommen_liste:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        extern_id:
+                          type: string
+                        bisher:
+                          type: string
+                        name:
+                          type: string
+              example:
+                kunden: 2
+                neu: 1
+                uebernommen: 1
+                uebernommen_liste:
+                  - extern_id: 0f1d8bfe-2fff-4dd0-ba0d-e0a2824928ce
+                    bisher: nea-taler
+                    name: NEA-Taler
         "400":
           $ref: "#/components/responses/S400"
         "401":
@@ -3523,6 +3573,15 @@ components:
           type:
             - string
             - "null"
+        quelle:
+          type: string
+          enum:
+            - produkt
+            - support
+          description: "`produkt`: über die API gemeldet. `support`: vom Team erfasst (Anruf, Mail, Termin); der Melder ist dann der Ansprechpartner des Kunden oder fehlt."
+        eingang_ueber:
+          type: string
+          description: Wie die Anfrage hereinkam, z. B. `produkt`, `email`, `telefon`, `whatsapp`, `termin`, `sonstiges`
     Ticket:
       type: object
       properties:
@@ -3555,6 +3614,15 @@ components:
           type:
             - string
             - "null"
+        quelle:
+          type: string
+          enum:
+            - produkt
+            - support
+          description: "`produkt`: über die API gemeldet. `support`: vom Team erfasst (Anruf, Mail, Termin); der Melder ist dann der Ansprechpartner des Kunden oder fehlt."
+        eingang_ueber:
+          type: string
+          description: Wie die Anfrage hereinkam, z. B. `produkt`, `email`, `telefon`, `whatsapp`, `termin`, `sonstiges`
         text:
           type: string
         bild_url:
