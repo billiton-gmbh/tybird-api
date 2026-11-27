@@ -1,0 +1,999 @@
+openapi: 3.1.0
+info:
+  title: tybird Support-API
+  version: 2.7.0
+  summary: Integrationspaket Helpdesk v1.1 (Auszug aus openapi.yaml der tybird API).
+servers: &ref_0
+  - url: 'https://agrctimmaaoywlsuoglc.supabase.co/functions/v1/support/v1'
+    description: Support-API
+tags:
+  - name: Support
+    description: |
+      Support-API v1. Ein Produkt meldet Fehler, Fragen und Ideen seiner Nutzer an den Helpdesk von billiton und zeigt ihnen den Stand.
+
+      - **Anmeldung:** `Authorization: Bearer tyb_live_…`, je Produkt ein Schlüssel. Er bestimmt das Produkt; ihr sendet es nicht mit. Der Schlüssel liegt nur in eurem Backend.
+      - **melder** ist die Person, **kunde** das Unternehmen, für das sie arbeitet. Beide mit eurer dauerhaften `extern_id`. Ihr bestimmt sie aus **eurer** Sitzung, nie aus Angaben des Browsers.
+      - **Fehler:** immer `{"fehler": "<code>", "meldung": "<Satz auf Deutsch>"}`.
+      - **Mails:** Beantwortet billiton eine Anfrage oder erledigt sie, informiert tybird den Melder per Mail, sobald der Versand für euer Produkt eingerichtet ist. Ihr müsst nichts tun.
+
+      **Grenzen je Melder und Stunde** (in der Kundensicht je Kunde), jede Art zählt für sich:
+
+      | Art | Aufrufe |
+      |---|---|
+      | Neue Anfragen (`POST /tickets`) | 20 |
+      | Antworten und Bestätigen zusammen | 60 |
+      | Lesen (Liste und Einzelabruf) | 600 |
+
+      Darüber kommt **429** `zu_viele`. Der Text ist bei allen drei Arten derselbe: „Mehr als 20 Anfragen je Melder und Stunde. Bitte später erneut senden." Auf `fehler` verzweigen, nicht auf den Text.
+  - name: Arbeiten mit dem Helpdesk
+    description: |
+      > **Stand.** Teil 1 und Teil 2 gelten (Vertrag v1.1). Nach außen kennt der Helpdesk sechs Status: `eingegangen`, `in_arbeit`, `rueckfrage`, `geplant`, `erledigt`, `geschlossen`, siehe Gruppe „Support".
+
+      ### Teil 1: Als Produkt anbinden
+
+      Die Felder stehen in der Gruppe „Support".
+
+      1. **Schlüssel holen.** billiton gibt je Produkt einen Support-Schlüssel aus. Er liegt nur in eurem Backend.
+      2. **Anfrage senden.** Euer Backend bestimmt Melder und Kunde aus eurer Sitzung und ruft `POST /tickets` auf. Merkt euch die `id`.
+      3. **Eigene Anfragen zeigen.** `GET /tickets?melder=…` für die Liste, `GET /tickets/{id}?melder=…` für den Verlauf. Die Kundensicht nur für Nutzer, die sicher Admin dieses Kunden sind.
+      4. **Antworten lassen.** `POST /tickets/{id}/antworten`, wenn der Nutzer nachfragt; `POST /tickets/{id}/bestaetigen` für „Hat geholfen".
+      5. **Status anzeigen.** Zeigt dem Kunden den Status, den die Schnittstelle liefert, und nichts anderes.
+
+      ### Teil 2: Als Entwicklungsteam abarbeiten (ab v1.1)
+
+      Der Helpdesk ist die einzige Quelle: Tickettext, Anhänge und Rückmeldung stehen dort. GitHub-Issues gibt es für Anfragen nicht. Gearbeitet wird über den MCP-Server (siehe „MCP-Server für Claude").
+
+      1. **Abholen.** Anfragen im Status „Bereit für Entwicklung", nur das eigene Produkt. Jede kommt mit ihrem Tickettext, dem Arbeitsauftrag (Ziel, Schritte zum Nachstellen, Akzeptanz).
+
+          `support_entwicklung_liste`
+
+          ```json
+          {}
+          ```
+
+      2. **Übernehmen.** Setzt „In Entwicklung" und trägt dich als Entwickler ein.
+
+          `support_entwicklung_nehmen`
+
+          ```json
+          {"ticket_id": "…"}
+          ```
+
+      3. **Lesen.** Übergabe und Verlauf der Anfrage.
+
+          `support_ticket_lesen`
+
+          ```json
+          {"nummer": "T-1043"}
+          ```
+
+      4. **Anhänge.** Bilder und Dateien zur Anfrage.
+
+          `support_anhaenge_lesen`
+
+          ```json
+          {"ticket_id": "…"}
+          ```
+
+      5. **Zwischenstand.** Entwicklungsnotiz, nur intern, mit Verweisen.
+
+          `support_entwicklung_bericht`
+
+          ```json
+          {"ticket_id": "…",
+           "text": "Ursache gefunden.",
+           "verweise": [{"art": "pr", "wert": "https://…"}]}
+          ```
+
+      6. **Zurückmelden.** Setzt „Zur Prüfung". Bericht und Verweise (PR, Commit, Deploy) sind Pflicht.
+
+          `support_entwicklung_fertig`
+
+          ```json
+          {"ticket_id": "…",
+           "text": "Behoben und ausgeliefert.",
+           "verweise": [{"art": "pr", "wert": "https://…"},
+             {"art": "commit", "wert": "abc1234"},
+             {"art": "deploy", "wert": "25.11.2026, 15:00"}]}
+          ```
+
+      **Eine Nachricht kommt herein** (Mail, WhatsApp, Anruf)
+
+      1. **Suchen.** `support_ticket_suchen` mit Produkt und Stichworten. Steht eine T-Nummer in der Nachricht, danach suchen.
+
+          ```json
+          {"produkt": "awiti",
+           "text": "Karte gesperrt"}
+          ```
+      2. **Bei Zweifel nach der T-Nummer fragen**, statt ein zweites Ticket anzulegen.
+      3. **Kunde bestimmen.** `support_kunde_suchen` mit Name, Mail-Domain oder Kennung. Nur bei `eindeutig: true` zuordnen; bei „nicht eindeutig" nachfragen und die Kandidaten nennen. Groß- und Kleinschreibung zählen nicht; der Name findet auch Teilwörter („nea taler" findet „NEA-Taler"). Ohne Treffer nennt `aehnliche` die nächsten Namen. Fehlt der Kunde wirklich, legt ihn `support_kunde_anlegen` an, aber nur auf Wunsch des Nutzers: Produkt, die Kennung beim Produkt (`kunde_extern_id`, bei Awiti die Netz-UUID) und der Name.
+
+          ```json
+          {"produkt": "awiti",
+           "name": "Beispiel GmbH",
+           "melder_mail": "lea@beispiel.de"}
+          ```
+      4. **Anlegen.** `support_ticket_anlegen` prüft selbst auf ähnliche Tickets und legt dann erst mit `trotzdem_anlegen: true` an. Im CRM wird dabei nichts angelegt. Die Antwort nennt Nummer und Link und ob eine Mail hinausgeht.
+
+          ```json
+          {"produkt": "awiti",
+           "kunde_id": "…",
+           "eingang_ueber": "whatsapp",
+           "art": "frage",
+           "titel": "Karte gesperrt",
+           "text": "…"}
+          ```
+
+      **Bei jedem Kontakt mit dem Konnektor**
+
+      1. **Lage holen:** `support_entwicklung_lage` für das eigene Produkt.
+      2. **Übernommenes prüfen:** Was steht auf „In Entwicklung", von wem, seit wie vielen Tagen?
+      3. **Fertiges abgeben:** mit `support_entwicklung_fertig` auf „Zur Prüfung".
+      4. **Liegengebliebenes melden**, statt es stehen zu lassen.
+
+      **Grenze.** Das Entwicklungsteam antwortet nicht dem Kunden und setzt nie „Gelöst". Es endet bei „Zur Prüfung"; prüfen, lösen und antworten ist Sache des Supports. Reicht die Übergabe nicht, gehört die Rückfrage in eine Entwicklungsnotiz.
+
+      **Die zwei Bahnen und was der Kunde sieht**
+
+      ```text
+      BAHN SUPPORT                 Kunde sieht
+      +--------------------------+
+      | Neu                      | eingegangen
+      +--------------------------+
+        v
+      +--------------------------+
+      | In Klärung               | in_arbeit
+      +--------------------------+
+        v    (von hier, je nach Fall)
+      +--------------------------+
+      | Beschreibung (optional)  | in_arbeit
+      | Wartet auf Kunde     (1) | rueckfrage
+      | Zurückgestellt       (2) | geplant
+      +--------------------------+
+        v    (aus In Klärung oder
+        v     Beschreibung)
+
+      BAHN ENTWICKLUNG
+      +--------------------------+
+      | Bereit für Entwicklung   | in_arbeit
+      +--------------------------+
+        v
+      +--------------------------+
+      | In Entwicklung           | in_arbeit
+      +--------------------------+
+        v   ^ nicht in Ordnung
+      +--------------------------+
+      | Zur Prüfung              | in_arbeit
+      +--------------------------+
+        v
+
+      ENDE
+      +--------------------------+
+      | Gelöst               (3) | erledigt
+      +--------------------------+
+        v
+      +--------------------------+
+      | Geschlossen              | geschlossen
+      +--------------------------+
+
+      (1) Antwort des Kunden führt zurück
+          zu In Klärung
+      (2) mit Datum "wieder ansehen am",
+          zurück zu In Klärung
+      (3) hat nicht geholfen oder Antwort:
+          zurück zu In Klärung
+      ```
+
+      „Gelöst" geht auch direkt aus „In Klärung" und „Beschreibung". „Geschlossen" wird eine Anfrage, wenn der Kunde „Hat geholfen" bestätigt oder der Support schließt, nie von selbst. Aus „Beschreibung" geht es auch zu „Wartet auf Kunde" und „Zurückgestellt".
+
+      **Dauerauftrag für Team-Chats** (kopieren, Produktnamen einsetzen)
+
+      ```text
+      Du bist das Entwicklungsteam für <PRODUKT>. Arbeite die Anfragen im
+      tybird-Helpdesk über den MCP-Server ab, nur für <PRODUKT>.
+
+      0. Beginne jede Sitzung mit support_entwicklung_lage für <PRODUKT>.
+         Gib Fertiges auf "Zur Prüfung" und melde Liegengebliebenes.
+      1. Nimm aus "Bereit für Entwicklung" nur Anfragen von <PRODUKT>.
+      2. Übernimm eine mit support_entwicklung_nehmen. Lies Tickettext,
+         Verlauf und Anhänge nur in tybird. Lege keine GitHub-Issues an.
+      3. Arbeite sie ab. Halte Zwischenstände mit
+         support_entwicklung_bericht fest.
+      4. Melde mit support_entwicklung_fertig zurück: Bericht und Verweise
+         auf PR, Commit und Deploy. Danach steht sie auf "Zur Prüfung".
+      5. Antworte nie dem Kunden und setze nie "Gelöst". Fehlt dir etwas,
+         schreibe es in eine Entwicklungsnotiz und nimm die nächste.
+      6. Bekommst du eine Nachricht eines Kunden: erst
+         support_ticket_suchen, bei Zweifel nach der T-Nummer fragen.
+         Sonst support_kunde_suchen und nur bei "eindeutig" mit
+         support_ticket_anlegen anlegen. Rate nie einen Kunden.
+      ```
+paths:
+  /tickets:
+    post:
+      tags:
+        - Support
+      operationId: createTicket
+      summary: Anfrage anlegen
+      description: 'Fehler, Frage oder Idee melden. Höchstens 20 je Melder und Stunde.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TicketNeu'
+            example:
+              art: frage
+              titel: Buchung ohne Gebühr stornieren?
+              text: Wie storniere ich eine Buchung ohne Gebühr?
+              melder:
+                extern_id: usr_8812
+                name: Lea Meier
+                email: lea.meier@beispiel.de
+                rolle: rezeption
+              kunde:
+                extern_id: hotel_seeblick
+                name: Hotel Seeblick
+              ruecksprung_url: 'https://app.beispiel.de/hilfe?ticket={id}'
+      responses:
+        '201':
+          description: Angelegt
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  nummer:
+                    type: string
+                    examples:
+                      - T-1043
+                  status:
+                    $ref: '#/components/schemas/TicketStatus'
+                  erstellt_am:
+                    type: string
+                    format: date-time
+        '400':
+          $ref: '#/components/responses/S400'
+        '401':
+          $ref: '#/components/responses/S401'
+        '413':
+          $ref: '#/components/responses/S413'
+        '429':
+          $ref: '#/components/responses/S429'
+        '503':
+          $ref: '#/components/responses/S503'
+      security:
+        - supportKey: []
+      servers: *ref_0
+    get:
+      tags:
+        - Support
+      operationId: listTickets
+      summary: Meine Anfragen
+      description: 'Alle Anfragen eines Melders oder (`sicht=kunde`) eines Kunden, neueste zuerst, höchstens 200. Höchstens 600 Abrufe je Melder und Stunde.'
+      parameters:
+        - name: melder
+          in: query
+          required: false
+          description: Eure Kennung der Person
+          schema:
+            type: string
+        - name: kunde
+          in: query
+          required: false
+          description: 'Eure Kennung des Unternehmens, nur mit `sicht=kunde`'
+          schema:
+            type: string
+        - name: sicht
+          in: query
+          required: false
+          description: 'Vorgabe `melder`. `kunde` nur senden, wenn **euer** System sicher weiß, dass der Nutzer Admin dieses Kunden ist'
+          schema:
+            type: string
+            enum:
+              - melder
+              - kunde
+      responses:
+        '200':
+          description: Liste
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tickets:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TicketKurz'
+        '400':
+          $ref: '#/components/responses/S400'
+        '401':
+          $ref: '#/components/responses/S401'
+        '429':
+          $ref: '#/components/responses/S429'
+        '503':
+          $ref: '#/components/responses/S503'
+      security:
+        - supportKey: []
+      servers:
+        - url: 'https://agrctimmaaoywlsuoglc.supabase.co/functions/v1/support/v1'
+          description: Support-API
+  '/tickets/{id}':
+    get:
+      tags:
+        - Support
+      operationId: getTicket
+      summary: Eine Anfrage mit Verlauf
+      description: 'Mit allen öffentlichen Antworten und einem Bildlink (10 Minuten). Ruft der Melder selbst ab, gelten die Antworten danach als gelesen; die Kundensicht ändert daran nichts. Interne Notizen kommen nie mit.'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Ticket
+          schema:
+            type: string
+            format: uuid
+        - name: melder
+          in: query
+          required: false
+          description: Eure Kennung der Person
+          schema:
+            type: string
+        - name: kunde
+          in: query
+          required: false
+          description: 'Eure Kennung des Unternehmens, nur mit `sicht=kunde`'
+          schema:
+            type: string
+        - name: sicht
+          in: query
+          required: false
+          description: 'Vorgabe `melder`. `kunde` nur senden, wenn **euer** System sicher weiß, dass der Nutzer Admin dieses Kunden ist'
+          schema:
+            type: string
+            enum:
+              - melder
+              - kunde
+      responses:
+        '200':
+          description: Ticket
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ticket'
+        '401':
+          $ref: '#/components/responses/S401'
+        '403':
+          $ref: '#/components/responses/S403'
+        '404':
+          $ref: '#/components/responses/S404'
+        '429':
+          $ref: '#/components/responses/S429'
+        '503':
+          $ref: '#/components/responses/S503'
+      security:
+        - supportKey: []
+      servers:
+        - url: 'https://agrctimmaaoywlsuoglc.supabase.co/functions/v1/support/v1'
+          description: Support-API
+  '/tickets/{id}/antworten':
+    post:
+      tags:
+        - Support
+      operationId: replyTicket
+      summary: Antworten oder nachfragen
+      description: 'Steht das Ticket auf `rueckfrage` oder `erledigt`, geht es dadurch auf `in_arbeit`. Antworten und Bestätigen zusammen höchstens 60 je Melder und Stunde.'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Ticket
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                melder_extern_id:
+                  type: string
+                text:
+                  type: string
+                  minLength: 1
+                  maxLength: 4000
+                anhaenge:
+                  type: array
+                  maxItems: 100
+                  description: 'Dateien bis 5 MB je Datei als Data-URL, zusammen höchstens 20 MB; größere über `POST /anhaenge` und `anhang_ids`'
+                  items:
+                    $ref: '#/components/schemas/AnhangNeu'
+                anhang_ids:
+                  type: array
+                  description: 'Kennungen aus `POST /anhaenge`, nach dem Hochladen'
+                  items:
+                    type: string
+                    format: uuid
+              required:
+                - melder_extern_id
+                - text
+            example:
+              melder_extern_id: usr_8812
+              text: 'Danke, und bei Gruppenbuchungen?'
+      responses:
+        '201':
+          description: Gespeichert
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  am:
+                    type: string
+                    format: date-time
+        '400':
+          $ref: '#/components/responses/S400'
+        '401':
+          $ref: '#/components/responses/S401'
+        '403':
+          $ref: '#/components/responses/S403'
+        '404':
+          $ref: '#/components/responses/S404'
+        '413':
+          $ref: '#/components/responses/S413'
+        '429':
+          $ref: '#/components/responses/S429'
+        '503':
+          $ref: '#/components/responses/S503'
+      security:
+        - supportKey: []
+      servers:
+        - url: 'https://agrctimmaaoywlsuoglc.supabase.co/functions/v1/support/v1'
+          description: Support-API
+  '/tickets/{id}/bestaetigen':
+    post:
+      tags:
+        - Support
+      operationId: confirmTicket
+      summary: „Hat geholfen"
+      description: 'Wirkt bei `erledigt`: `true` schließt das Ticket (`geschlossen`), `false` öffnet es wieder (`in_arbeit`). In anderen Status wird nur die Rückmeldung gespeichert.'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Ticket
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                melder_extern_id:
+                  type: string
+                hilfreich:
+                  type: boolean
+              required:
+                - melder_extern_id
+                - hilfreich
+            example:
+              melder_extern_id: usr_8812
+              hilfreich: true
+      responses:
+        '200':
+          description: Gespeichert
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  status:
+                    $ref: '#/components/schemas/TicketStatus'
+        '400':
+          $ref: '#/components/responses/S400'
+        '401':
+          $ref: '#/components/responses/S401'
+        '403':
+          $ref: '#/components/responses/S403'
+        '404':
+          $ref: '#/components/responses/S404'
+        '429':
+          $ref: '#/components/responses/S429'
+        '503':
+          $ref: '#/components/responses/S503'
+      security:
+        - supportKey: []
+      servers:
+        - url: 'https://agrctimmaaoywlsuoglc.supabase.co/functions/v1/support/v1'
+          description: Support-API
+  /anhaenge:
+    post:
+      tags:
+        - Support
+      operationId: supportAnhangVormerken
+      summary: Großen Anhang vormerken (signierter Upload)
+      description: 'Für Dateien, die nicht als Data-URL ins JSON passen. Liefert eine signierte Upload-URL; die Datei geht per `PUT` dorthin (gültig zwei Stunden). Danach die `anhang_id` in `anhang_ids` von `POST /tickets` oder `POST /tickets/{id}/antworten` mitgeben. Bild 5 MB, Video 100 MB, sonst 20 MB. Höchstens 60 Aufrufe je Melder und Stunde.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                melder_extern_id:
+                  type: string
+                dateiname:
+                  type: string
+                typ:
+                  type: string
+                groesse:
+                  type: integer
+                  description: Bytes
+                seite:
+                  type: string
+                  maxLength: 300
+              required:
+                - melder_extern_id
+                - dateiname
+                - typ
+                - groesse
+            example:
+              melder_extern_id: usr_8812
+              dateiname: ablauf.mp4
+              typ: video/mp4
+              groesse: 31457280
+      responses:
+        '201':
+          description: Vorgemerkt
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  anhang_id:
+                    type: string
+                    format: uuid
+                  upload_url:
+                    type: string
+                    format: uri
+                  methode:
+                    type: string
+                    enum:
+                      - PUT
+                  typ:
+                    type: string
+        '400':
+          $ref: '#/components/responses/S400'
+        '401':
+          $ref: '#/components/responses/S401'
+        '413':
+          $ref: '#/components/responses/S413'
+        '429':
+          $ref: '#/components/responses/S429'
+        '503':
+          $ref: '#/components/responses/S503'
+      security:
+        - supportKey: []
+      servers:
+        - url: 'https://agrctimmaaoywlsuoglc.supabase.co/functions/v1/support/v1'
+          description: Support-API
+  /kunden:
+    post:
+      tags:
+        - Support
+      operationId: supportKundenAbgleichen
+      summary: Kundenliste abgleichen
+      description: 'Legt die Kunden des Produkts mit ihrer dauerhaften `extern_id` an oder gleicht Name und Admin-Adressen ab. 1 bis 500 Einträge je Aufruf, höchstens 20 Abgleiche je Stunde. Ein Kunde, der nicht mehr gesendet wird, bleibt bestehen.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: array
+                  items:
+                    $ref: '#/components/schemas/KundeAbgleich'
+                - type: object
+                  properties:
+                    kunden:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/KundeAbgleich'
+                  required:
+                    - kunden
+            example:
+              kunden:
+                - extern_id: hotel_seeblick
+                  name: Hotel Seeblick
+                  admin_emails:
+                    - leitung@beispiel.de
+      responses:
+        '200':
+          description: Abgeglichen
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '400':
+          $ref: '#/components/responses/S400'
+        '401':
+          $ref: '#/components/responses/S401'
+        '429':
+          $ref: '#/components/responses/S429'
+        '503':
+          $ref: '#/components/responses/S503'
+      security:
+        - supportKey: []
+      servers:
+        - url: 'https://agrctimmaaoywlsuoglc.supabase.co/functions/v1/support/v1'
+          description: Support-API
+components:
+  schemas:
+    TicketNeu:
+      type: object
+      properties:
+        art:
+          $ref: '#/components/schemas/TicketArt'
+        titel:
+          type: string
+          description: 'Fehlt er, entsteht er aus den ersten Worten von `text`'
+          minLength: 3
+          maxLength: 80
+        text:
+          type: string
+          minLength: 3
+          maxLength: 4000
+        melder:
+          type: object
+          properties:
+            extern_id:
+              type: string
+              description: Eure dauerhafte Kennung der Person
+              maxLength: 120
+            name:
+              type: string
+              maxLength: 120
+            email:
+              type: string
+              format: email
+            rolle:
+              type: string
+              maxLength: 60
+          required:
+            - extern_id
+            - email
+        kunde:
+          type: object
+          properties:
+            extern_id:
+              type: string
+              description: Eure dauerhafte Kennung des Unternehmens
+              maxLength: 120
+            name:
+              type: string
+              maxLength: 160
+          required:
+            - extern_id
+            - name
+        kontext:
+          type: object
+          description: 'Frei, höchstens 8.000 Byte'
+          properties:
+            url:
+              type: string
+            seite:
+              type: string
+            app_version:
+              type: string
+            browser:
+              type: string
+            viewport:
+              type: string
+            letzter_fehler:
+              type:
+                - string
+                - 'null'
+            zeitpunkt:
+              type: string
+              format: date-time
+        bild:
+          type: string
+          description: 'Data-URL, PNG oder WebP, höchstens 2 MB, bereits geschwärzt'
+        ruecksprung_url:
+          type: string
+          description: 'Link in der Antwort-Mail, `https://`; `{id}` wird ersetzt'
+        anhaenge:
+          type: array
+          maxItems: 100
+          description: 'Dateien bis 5 MB je Datei als Data-URL, zusammen höchstens 20 MB; größere über `POST /anhaenge` und `anhang_ids`'
+          items:
+            $ref: '#/components/schemas/AnhangNeu'
+        anhang_ids:
+          type: array
+          description: 'Kennungen aus `POST /anhaenge`, nach dem Hochladen'
+          items:
+            type: string
+            format: uuid
+      required:
+        - art
+        - text
+        - melder
+        - kunde
+    TicketArt:
+      type: string
+      enum:
+        - fehler
+        - frage
+        - idee
+    AnhangNeu:
+      type: object
+      properties:
+        dateiname:
+          type: string
+          description: 'Die Endung muss zum Typ passen (png, jpg, webp, gif, pdf, html, mp4, webm, txt, csv, xlsx, docx)'
+          examples:
+            - fehler.png
+        data_url:
+          type: string
+          description: '`data:<typ>;base64,...`, höchstens 5 MB'
+        seite:
+          type: string
+          maxLength: 300
+      required:
+        - dateiname
+        - data_url
+    TicketStatus:
+      type: string
+      enum:
+        - eingegangen
+        - in_arbeit
+        - rueckfrage
+        - geplant
+        - erledigt
+        - geschlossen
+      description: 'Sechs Außenstatus. `eingegangen` neu; `in_arbeit` in Klärung, Beschreibung oder Entwicklung; `rueckfrage` wartet auf eine Antwort des Melders; `geplant` zurückgestellt; `erledigt` gelöst, die Antwort liegt vor; `geschlossen` bestätigt oder abgeschlossen. Aus Sicht des Melders: Eine Antwort (`POST /tickets/{id}/antworten`) bei `rueckfrage` oder `erledigt` führt zu `in_arbeit`; „Hat geholfen" bei `erledigt` führt zu `geschlossen`, „Hat nicht geholfen" zu `in_arbeit`.'
+    SupportFehler:
+      type: object
+      properties:
+        fehler:
+          type: string
+          enum:
+            - ungueltig
+            - nicht_angemeldet
+            - kein_zugriff
+            - nicht_gefunden
+            - bild_zu_gross
+            - zu_viele
+            - wartung
+        meldung:
+          type: string
+          description: 'Satz auf Deutsch, zum Anzeigen geeignet'
+      required:
+        - fehler
+        - meldung
+    TicketKurz:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        nummer:
+          type: string
+          examples:
+            - T-1043
+        art:
+          $ref: '#/components/schemas/TicketArt'
+        titel:
+          type: string
+        status:
+          $ref: '#/components/schemas/TicketStatus'
+        erstellt_am:
+          type: string
+          format: date-time
+        geaendert_am:
+          type: string
+          format: date-time
+        letzte_antwort:
+          oneOf:
+            - $ref: '#/components/schemas/TicketAntwort'
+            - type: 'null'
+        ungelesen:
+          type: integer
+        melder_name:
+          type:
+            - string
+            - 'null'
+    TicketAntwort:
+      type: object
+      properties:
+        von:
+          type: string
+          enum:
+            - melder
+            - support
+        name:
+          type: string
+        text:
+          type: string
+        am:
+          type: string
+          format: date-time
+        anhaenge:
+          type: array
+          items:
+            $ref: '#/components/schemas/Anhang'
+    Anhang:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        dateiname:
+          type: string
+        typ:
+          type: string
+        groesse:
+          type: integer
+          description: Bytes
+        seite:
+          type:
+            - string
+            - 'null'
+        url:
+          type:
+            - string
+            - 'null'
+          description: 'Signierter Link, gilt 10 Minuten; HTML nur als Download'
+    Ticket:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        nummer:
+          type: string
+          examples:
+            - T-1043
+        art:
+          $ref: '#/components/schemas/TicketArt'
+        titel:
+          type: string
+        status:
+          $ref: '#/components/schemas/TicketStatus'
+        erstellt_am:
+          type: string
+          format: date-time
+        geaendert_am:
+          type: string
+          format: date-time
+        letzte_antwort:
+          oneOf:
+            - $ref: '#/components/schemas/TicketAntwort'
+            - type: 'null'
+        ungelesen:
+          type: integer
+        melder_name:
+          type:
+            - string
+            - 'null'
+        text:
+          type: string
+        bild_url:
+          type:
+            - string
+            - 'null'
+          description: Gilt 10 Minuten
+        antworten:
+          type: array
+          items:
+            $ref: '#/components/schemas/TicketAntwort'
+        anhaenge:
+          type: array
+          items:
+            $ref: '#/components/schemas/Anhang'
+    KundeAbgleich:
+      type: object
+      properties:
+        extern_id:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: Dieselbe Kennung wie `kunde.extern_id` in `POST /tickets`
+        name:
+          type: string
+          minLength: 1
+          maxLength: 160
+        admin_emails:
+          type: array
+          maxItems: 20
+          description: Mails von diesen Adressen auf eine Helpdesk-Mail gelten als Antwort am Ticket
+          items:
+            type: string
+            format: email
+      required:
+        - extern_id
+        - name
+  responses:
+    S400:
+      description: 'Pflichtfeld fehlt, zu lang, falsche Form'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/SupportFehler'
+          example:
+            fehler: ungueltig
+            meldung: 'Pflichtfeld fehlt, ist zu lang oder hat die falsche Form.'
+    S401:
+      description: Schlüssel fehlt oder ist ungültig
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/SupportFehler'
+          example:
+            fehler: nicht_angemeldet
+            meldung: Schlüssel fehlt oder ist ungültig.
+    S413:
+      description: '`bild` über 2 MB (`bild_zu_gross`), oder ein Anhang zu groß (`anhang_zu_gross`): je Data-URL 5 MB, alle Data-URLs einer Anfrage zusammen 20 MB, beim signierten Upload Bild 5 MB, Video 100 MB, sonst 20 MB'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/SupportFehler'
+          example:
+            fehler: bild_zu_gross
+            meldung: Das Bild ist größer als 2 MB.
+    S429:
+      description: Zu viele Aufrufe je Melder und Stunde
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/SupportFehler'
+          example:
+            fehler: zu_viele
+            meldung: Mehr als 20 Anfragen je Melder und Stunde. Bitte später erneut senden.
+    S503:
+      description: 'Kurz nicht erreichbar, später erneut senden'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/SupportFehler'
+          example:
+            fehler: wartung
+            meldung: Der Helpdesk ist kurz nicht erreichbar. Bitte später erneut senden.
+    S403:
+      description: 'Ticket gehört nicht zu diesem Melder, Kunden oder Produkt'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/SupportFehler'
+          example:
+            fehler: kein_zugriff
+            meldung: 'Das Ticket gehört nicht zu diesem Melder, Kunden oder Produkt.'
+    S404:
+      description: Ticket gibt es nicht
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/SupportFehler'
+          example:
+            fehler: nicht_gefunden
+            meldung: Dieses Ticket gibt es nicht.
+  securitySchemes:
+    supportKey:
+      type: http
+      scheme: bearer
+      description: 'Support-Schlüssel eines Produkts, `Authorization: Bearer tyb_live_…`. Nur im Backend des Produkts.'
