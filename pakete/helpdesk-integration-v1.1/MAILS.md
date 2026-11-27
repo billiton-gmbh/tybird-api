@@ -4,7 +4,7 @@ Der Helpdesk schreibt dem Melder aus dem Postfach des Produkts. Die Adresse des 
 
 | Anlass | Betreff | Inhalt |
 |---|---|---|
-| Anfrage angelegt | `[T-1234] Eingegangen: <Titel>` | Bestätigung, dass die Anfrage aufgenommen ist |
+| Anfrage angelegt (nach Freigabe, siehe STATUS.md) | `[T-1234] Eingegangen: <Titel>` | Bestätigung, dass die Anfrage aufgenommen ist |
 | Antwort des Teams | `[T-1234] Antwort: <Titel>` | Der Antworttext |
 | Rückfrage des Teams | `[T-1234] Rückfrage: <Titel>` | Der Text der Rückfrage; die Anfrage wartet auf den Melder |
 | Anfrage gelöst | `[T-1234] Gelöst: <Titel>` | Hinweis auf die Erledigung mit dem Lösungstext |

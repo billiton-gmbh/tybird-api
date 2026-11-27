@@ -1,6 +1,6 @@
 # Helpdesk-Integration v1.1 - Paket für Produktteams
 
-Stand 27.11.2026, Support-API 1.1, Dokumentation 2.6.0.
+Stand 27.11.2026, Support-API 1.1, Dokumentation 2.7.0.
 
 Dieses Paket enthält alles, was ein Produkt braucht, um Anfragen seiner Nutzer an den tybird-Helpdesk zu geben und Antworten zurückzuholen.
 
@@ -8,7 +8,7 @@ Dieses Paket enthält alles, was ein Produkt braucht, um Anfragen seiner Nutzer 
 |---|---|
 | `openapi.yaml` | Die Support-API als OpenAPI-Auszug: Tickets, Antworten, Bestätigen, Anhänge, Kundenabgleich |
 | `STATUS.md` | Was heute in Betrieb ist und was nicht |
-| `CHANGELOG.md` | Änderungen der Dokumentation 2.0.0 bis 2.6.0 |
+| `CHANGELOG.md` | Änderungen der Dokumentation 2.0.0 bis 2.7.0 |
 | `GRENZEN.md` | Größen, Mengen und Drosseln mit den Antwortcodes |
 | `MAILS.md` | Welche Mails der Melder bekommt und wann |
 | `KUNDEN.md` | Kundenliste abgleichen, `extern_id`, Admin-Adressen |

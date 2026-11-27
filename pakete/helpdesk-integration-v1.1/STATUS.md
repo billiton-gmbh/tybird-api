@@ -9,8 +9,33 @@ Stand 27.11.2026.
 | `anhaenge` als Data-URL in Anfrage und Antwort | in Betrieb |
 | `POST /anhaenge` (signierter Upload) mit `anhang_ids` | in Betrieb |
 | `POST /kunden` (Kundenabgleich) | in Betrieb |
-| Mails an den Melder (Eingegangen, Antwort, Rückfrage, Gelöst) | in Betrieb seit 26.11.2026, minütlich |
+| Mails an den Melder: Antwort, Rückfrage, Gelöst | in Betrieb seit 27.11.2026, minütlich |
+| Mail an den Melder: Eingangsbestätigung („Eingegangen") für jede neue Anfrage | vorbereitet, wird nach Freigabe eingeschaltet |
 | Antworten des Melders per Mail | in Betrieb: Antworten auf eine Helpdesk-Mail landen am Ticket |
+
+## Status einer Anfrage
+
+Die API nennt sechs Status. Zeigen Sie dem Melder genau diesen Status.
+
+| Status | Bedeutung |
+|---|---|
+| `eingegangen` | Neu, noch nicht bearbeitet |
+| `in_arbeit` | Das Team klärt, beschreibt oder entwickelt |
+| `rueckfrage` | Das Team wartet auf eine Antwort des Melders |
+| `geplant` | Zurückgestellt, wird später wieder aufgenommen |
+| `erledigt` | Gelöst, die Antwort liegt vor |
+| `geschlossen` | Vom Melder bestätigt oder vom Team abgeschlossen |
+
+## Übergänge aus Sicht des Melders
+
+| Der Melder ... | Aufruf | bei Status | danach |
+|---|---|---|---|
+| antwortet | `POST /tickets/{id}/antworten` | `rueckfrage` oder `erledigt` | `in_arbeit` |
+| antwortet | `POST /tickets/{id}/antworten` | alle anderen | unverändert; die Antwort steht am Ticket |
+| klickt „Hat geholfen" | `POST /tickets/{id}/bestaetigen` mit `hilfreich: true` | `erledigt` | `geschlossen` |
+| fragt nach („Hat nicht geholfen") | `POST /tickets/{id}/bestaetigen` mit `hilfreich: false` | `erledigt` | `in_arbeit` |
+
+In anderen Status speichert `bestaetigen` nur die Rückmeldung; der Status bleibt. „Geschlossen" wird eine Anfrage nie von selbst.
 
 ## Was Produkte heute nutzen
 
