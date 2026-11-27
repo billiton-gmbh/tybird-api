@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: tybird API
-  version: 2.6.0
+  version: 2.7.0
   summary: "Schnittstellen von tybird: App-API, Support-API und MCP-Server für Claude."
   description: >
     # tybird API
@@ -248,10 +248,8 @@ tags:
       - `support_was_ist_neu` - Vorschläge für „Was ist neu?"; hervorgehobene zuerst, gesperrte nie.
   - name: Arbeiten mit dem Helpdesk
     description: >
-      > **Stand.** Teil 1 gilt heute. Teil 2 gilt ab Vertrag v1.1 und ist **noch nicht verfügbar**. Heute geht im
-      MCP-Server: Anfragen auflisten und lesen (`support_tickets_liste`, `support_ticket_lesen`), intern vermerken
-      (`support_notiz`), Zuständige setzen (`support_zustaendig_setzen`). Den Status kennt der Helpdesk heute in fünf
-      Werten, siehe Gruppe „Support".
+      > **Stand.** Teil 1 und Teil 2 gelten (Vertrag v1.1). Nach außen kennt der Helpdesk sechs Status: `eingegangen`,
+      `in_arbeit`, `rueckfrage`, `geplant`, `erledigt`, `geschlossen`, siehe Gruppe „Support".
 
 
       ### Teil 1: Als Produkt anbinden
@@ -507,6 +505,12 @@ tags:
       | Version |
 
       |---|
+
+      | **2.7.0** · 2026-11-27 · Doku - Support-API an das tatsächliche Verhalten angeglichen: `anhaenge` (Data-URL) und
+      `anhang_ids` in `POST /tickets` und `POST /tickets/{id}/antworten`, Anhänge in `GET /tickets/{id}`; `POST /anhaenge`
+      (signierter Upload) und `POST /kunden` (Kundenabgleich) beschrieben; Status `rueckfrage` ergänzt (sechs Außenstatus);
+      413 auch für Anhänge (5 MB je Datei, 20 MB zusammen); nach Antwort des Melders und „Hat nicht geholfen" steht das
+      Ticket auf `in_arbeit`, nicht auf `eingegangen`. Die Schnittstelle selbst hat sich nicht geändert. |
 
       | **2.6.0** · 2026-11-26 · Doku und MCP 1.12.0 - Dateiübergabe. Neue Werkzeuge: `dateien_uebergeben` (Name, Größe, Typ
       und sha256 je Datei; Antwort mit signierter Upload-URL und curl-Befehl je Datei, 30 Minuten gültig; ohne Dateiliste öffnet
@@ -2014,8 +2018,8 @@ paths:
       operationId: replyTicket
       summary: Antworten oder nachfragen
       description: >-
-        Ein erledigtes Ticket geht dadurch wieder auf `eingegangen`. Antworten und Bestätigen zusammen höchstens 60 je
-        Melder und Stunde.
+        Steht das Ticket auf `rueckfrage` oder `erledigt`, geht es dadurch auf `in_arbeit`. Antworten und Bestätigen
+        zusammen höchstens 60 je Melder und Stunde.
       parameters:
         - name: id
           in: path
@@ -2037,6 +2041,18 @@ paths:
                   type: string
                   minLength: 1
                   maxLength: 4000
+                anhaenge:
+                  type: array
+                  maxItems: 100
+                  description: Dateien bis 5 MB je Datei als Data-URL, zusammen höchstens 20 MB; größere über `POST /anhaenge` und `anhang_ids`
+                  items:
+                    $ref: "#/components/schemas/AnhangNeu"
+                anhang_ids:
+                  type: array
+                  description: Kennungen aus `POST /anhaenge`, nach dem Hochladen
+                  items:
+                    type: string
+                    format: uuid
               required:
                 - melder_extern_id
                 - text
@@ -2065,6 +2081,8 @@ paths:
           $ref: "#/components/responses/S403"
         "404":
           $ref: "#/components/responses/S404"
+        "413":
+          $ref: "#/components/responses/S413"
         "429":
           $ref: "#/components/responses/S429"
         "503":
@@ -2080,7 +2098,9 @@ paths:
         - Support
       operationId: confirmTicket
       summary: „Hat geholfen"
-      description: "`true` schließt das Ticket, `false` öffnet es wieder (`eingegangen`)."
+      description: >-
+        Wirkt bei `erledigt`: `true` schließt das Ticket (`geschlossen`), `false` öffnet es wieder (`in_arbeit`). In
+        anderen Status wird nur die Rückmeldung gespeichert.
       parameters:
         - name: id
           in: path
@@ -2127,6 +2147,133 @@ paths:
           $ref: "#/components/responses/S403"
         "404":
           $ref: "#/components/responses/S404"
+        "429":
+          $ref: "#/components/responses/S429"
+        "503":
+          $ref: "#/components/responses/S503"
+      security:
+        - supportKey: []
+      servers:
+        - url: https://agrctimmaaoywlsuoglc.supabase.co/functions/v1/support/v1
+          description: Support-API
+  /anhaenge:
+    post:
+      tags:
+        - Support
+      operationId: supportAnhangVormerken
+      summary: Großen Anhang vormerken (signierter Upload)
+      description: >-
+        Für Dateien, die nicht als Data-URL ins JSON passen. Liefert eine signierte Upload-URL; die Datei geht per `PUT`
+        dorthin (gültig zwei Stunden). Danach die `anhang_id` in `anhang_ids` von `POST /tickets` oder `POST
+        /tickets/{id}/antworten` mitgeben. Bild 5 MB, Video 100 MB, sonst 20 MB. Höchstens 60 Aufrufe je Melder und Stunde.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                melder_extern_id:
+                  type: string
+                dateiname:
+                  type: string
+                typ:
+                  type: string
+                groesse:
+                  type: integer
+                  description: Bytes
+                seite:
+                  type: string
+                  maxLength: 300
+              required:
+                - melder_extern_id
+                - dateiname
+                - typ
+                - groesse
+            example:
+              melder_extern_id: usr_8812
+              dateiname: ablauf.mp4
+              typ: video/mp4
+              groesse: 31457280
+      responses:
+        "201":
+          description: Vorgemerkt
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  anhang_id:
+                    type: string
+                    format: uuid
+                  upload_url:
+                    type: string
+                    format: uri
+                  methode:
+                    type: string
+                    enum:
+                      - PUT
+                  typ:
+                    type: string
+        "400":
+          $ref: "#/components/responses/S400"
+        "401":
+          $ref: "#/components/responses/S401"
+        "413":
+          $ref: "#/components/responses/S413"
+        "429":
+          $ref: "#/components/responses/S429"
+        "503":
+          $ref: "#/components/responses/S503"
+      security:
+        - supportKey: []
+      servers:
+        - url: https://agrctimmaaoywlsuoglc.supabase.co/functions/v1/support/v1
+          description: Support-API
+  /kunden:
+    post:
+      tags:
+        - Support
+      operationId: supportKundenAbgleichen
+      summary: Kundenliste abgleichen
+      description: >-
+        Legt die Kunden des Produkts mit ihrer dauerhaften `extern_id` an oder gleicht Name und Admin-Adressen ab. 1 bis
+        500 Einträge je Aufruf, höchstens 20 Abgleiche je Stunde. Ein Kunde, der nicht mehr gesendet wird, bleibt bestehen.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: array
+                  items:
+                    $ref: "#/components/schemas/KundeAbgleich"
+                - type: object
+                  properties:
+                    kunden:
+                      type: array
+                      items:
+                        $ref: "#/components/schemas/KundeAbgleich"
+                  required:
+                    - kunden
+            example:
+              kunden:
+                - extern_id: hotel_seeblick
+                  name: Hotel Seeblick
+                  admin_emails:
+                    - leitung@beispiel.de
+      responses:
+        "200":
+          description: Abgeglichen
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/S400"
+        "401":
+          $ref: "#/components/responses/S401"
         "429":
           $ref: "#/components/responses/S429"
         "503":
@@ -2275,7 +2422,9 @@ components:
             fehler: nicht_gefunden
             meldung: Dieses Ticket gibt es nicht.
     S413:
-      description: Bild über 2 MB
+      description: >-
+        `bild` über 2 MB (`bild_zu_gross`), oder ein Anhang zu groß (`anhang_zu_gross`): je Data-URL 5 MB, alle
+        Data-URLs einer Anfrage zusammen 20 MB, beim signierten Upload Bild 5 MB, Video 100 MB, sonst 20 MB
       content:
         application/json:
           schema:
@@ -3162,10 +3311,16 @@ components:
       enum:
         - eingegangen
         - in_arbeit
+        - rueckfrage
         - geplant
         - erledigt
         - geschlossen
-      description: "`geplant` nur bei Ideen; `erledigt` = Antwort liegt vor; `geschlossen` = bestätigt oder abgeschlossen"
+      description: >-
+        Sechs Außenstatus. `eingegangen` neu; `in_arbeit` in Klärung, Beschreibung oder Entwicklung; `rueckfrage` wartet
+        auf eine Antwort des Melders; `geplant` zurückgestellt; `erledigt` gelöst, die Antwort liegt vor; `geschlossen`
+        bestätigt oder abgeschlossen. Aus Sicht des Melders: Eine Antwort (`POST /tickets/{id}/antworten`) bei
+        `rueckfrage` oder `erledigt` führt zu `in_arbeit`; „Hat geholfen" bei `erledigt` führt zu `geschlossen`, „Hat nicht
+        geholfen" zu `in_arbeit`.
     TicketNeu:
       type: object
       properties:
@@ -3239,11 +3394,84 @@ components:
         ruecksprung_url:
           type: string
           description: Link in der Antwort-Mail, `https://`; `{id}` wird ersetzt
+        anhaenge:
+          type: array
+          maxItems: 100
+          description: Dateien bis 5 MB je Datei als Data-URL, zusammen höchstens 20 MB; größere über `POST /anhaenge` und `anhang_ids`
+          items:
+            $ref: "#/components/schemas/AnhangNeu"
+        anhang_ids:
+          type: array
+          description: Kennungen aus `POST /anhaenge`, nach dem Hochladen
+          items:
+            type: string
+            format: uuid
       required:
         - art
         - text
         - melder
         - kunde
+    AnhangNeu:
+      type: object
+      properties:
+        dateiname:
+          type: string
+          description: Die Endung muss zum Typ passen (png, jpg, webp, gif, pdf, html, mp4, webm, txt, csv, xlsx, docx)
+          examples:
+            - fehler.png
+        data_url:
+          type: string
+          description: "`data:<typ>;base64,...`, höchstens 5 MB"
+        seite:
+          type: string
+          maxLength: 300
+      required:
+        - dateiname
+        - data_url
+    Anhang:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        dateiname:
+          type: string
+        typ:
+          type: string
+        groesse:
+          type: integer
+          description: Bytes
+        seite:
+          type:
+            - string
+            - "null"
+        url:
+          type:
+            - string
+            - "null"
+          description: Signierter Link, gilt 10 Minuten; HTML nur als Download
+    KundeAbgleich:
+      type: object
+      properties:
+        extern_id:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: Dieselbe Kennung wie `kunde.extern_id` in `POST /tickets`
+        name:
+          type: string
+          minLength: 1
+          maxLength: 160
+        admin_emails:
+          type: array
+          maxItems: 20
+          description: Mails von diesen Adressen auf eine Helpdesk-Mail gelten als Antwort am Ticket
+          items:
+            type: string
+            format: email
+      required:
+        - extern_id
+        - name
     TicketAntwort:
       type: object
       properties:
@@ -3259,6 +3487,10 @@ components:
         am:
           type: string
           format: date-time
+        anhaenge:
+          type: array
+          items:
+            $ref: "#/components/schemas/Anhang"
     TicketKurz:
       type: object
       properties:
@@ -3334,3 +3566,7 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/TicketAntwort"
+        anhaenge:
+          type: array
+          items:
+            $ref: "#/components/schemas/Anhang"
