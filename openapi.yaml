@@ -506,7 +506,7 @@ tags:
 
       |---|
 
-      | **2.7.1** · 2026-11-27 · Support-API: Anfragen tragen `quelle` (`produkt` oder `support`: vom Team erfasst, etwa nach
+      | **2.7.1** · 2026-11-27 · Support-API: Anfragen tragen `quelle` (`produkt` oder `support`: vom Team erfasst, mit `erfasst_von`, etwa nach
       einem Anruf) und `eingang_ueber`. `sicht=kunde` liefert auch die vom Team erfassten Anfragen des Kunden. Neuer
       Parameter `melder_email` an `GET /tickets` und `GET /tickets/{id}`. Eine alte Kunden-Kennung bleibt gültig, wenn das Team
       sie ändert; `POST /kunden` übernimmt einen vorhandenen Kunden gleichen Namens und meldet ihn unter `uebernommen`. |
@@ -3579,6 +3579,11 @@ components:
             - produkt
             - support
           description: "`produkt`: über die API gemeldet. `support`: vom Team erfasst (Anruf, Mail, Termin); der Melder ist dann der Ansprechpartner des Kunden oder fehlt."
+        erfasst_von:
+          type:
+            - string
+            - "null"
+          description: Bei quelle support der Vorname der Person im Team, sonst null
         eingang_ueber:
           type: string
           description: Wie die Anfrage hereinkam, z. B. `produkt`, `email`, `telefon`, `whatsapp`, `termin`, `sonstiges`
@@ -3620,6 +3625,11 @@ components:
             - produkt
             - support
           description: "`produkt`: über die API gemeldet. `support`: vom Team erfasst (Anruf, Mail, Termin); der Melder ist dann der Ansprechpartner des Kunden oder fehlt."
+        erfasst_von:
+          type:
+            - string
+            - "null"
+          description: Bei quelle support der Vorname der Person im Team, sonst null
         eingang_ueber:
           type: string
           description: Wie die Anfrage hereinkam, z. B. `produkt`, `email`, `telefon`, `whatsapp`, `termin`, `sonstiges`
